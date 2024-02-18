@@ -2,7 +2,7 @@
 
 namespace Subverse.Models
 {
-    public record SubverseMessage(KNodeId256[] Tags, byte[] Content)
+    public record SubverseMessage(KNodeId256[] Tags, int TimeToLive, byte[] Content)
     {
     }
 }
