@@ -153,45 +153,50 @@ namespace Subverse.Server
                 var entityCookie = await _cookieStorage.ReadAsync<CertificateCookie>(new(recipient), default);
                 if (entityCookie?.Body is SubverseHub hub)
                 {
-                    // Establish connection with remote hub...
+                    // If this message has a valid TTL value...
+                    if (message.TimeToLive > 0)
+                    {
+                        // Establish connection with remote hub...
 
 #pragma warning disable CA1416 // Validate platform compatibility
-                    try
-                    {
-                        // Try connection w/ 5 second timeout
-                        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
+                        try
                         {
-                            var quicConnection = await QuicConnection.ConnectAsync(
-                                new QuicClientConnectionOptions
-                                {
-                                    RemoteEndPoint = hub.ServiceEndpoint,
-
-                                    DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
-                                    DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
-
-                                    ClientAuthenticationOptions =
+                            // Try connection w/ 5 second timeout
+                            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
+                            {
+                                var quicConnection = await QuicConnection.ConnectAsync(
+                                    new QuicClientConnectionOptions
                                     {
+                                        RemoteEndPoint = hub.ServiceEndpoint,
+
+                                        DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
+                                        DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
+
+                                        ClientAuthenticationOptions =
+                                        {
                                 ApplicationProtocols = new List<SslApplicationProtocol>
                                 {
                                     SslApplicationProtocol.Http11,
                                     SslApplicationProtocol.Http2,
                                     SslApplicationProtocol.Http3
                                 },
-                                    }
-                                }, cts.Token);
+                                        }
+                                    }, cts.Token);
 
-                            var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetFile(), _keyProvider.GetPassPhrase());
-                            await OpenConnectionAsync(hubConnection);
+                                var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetFile(), _keyProvider.GetPassPhrase());
+                                await OpenConnectionAsync(hubConnection);
 #pragma warning restore CA1416 // Validate platform compatibility
 
-                            // ...and forward the message to it!
-                            await RouteMessageAsync(recipient, message);
+                                // ...and forward the message to it! Decrement TTL because this causes an actual hop!
+                                await RouteMessageAsync(recipient, message with { TimeToLive = message.TimeToLive - 1 });
+                            }
                         }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Our only hopes of contacting this hub have run out!! For now...
-                        await _messageQueue.EnqueueAsync(recipient, message);
+                        catch (OperationCanceledException)
+                        {
+                            // Our only hopes of contacting this hub have run out!! For now...
+                            // Queue this message for future delivery.
+                            await _messageQueue.EnqueueAsync(recipient, message);
+                        }
                     }
                 }
                 else if (entityCookie?.Body is SubverseUser user)
