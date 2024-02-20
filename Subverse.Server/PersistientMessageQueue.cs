@@ -49,7 +49,7 @@ namespace Subverse.Server
         public Task EnqueueAsync(string key, SubverseMessage message)
         {
             var collection = _db.GetCollection<KeyedMessage>();
-            var keyedMessage = new KeyedMessage(collection.LongCount(), key, message);
+            var keyedMessage = new KeyedMessage(0, key, message);
 
             collection.Insert(keyedMessage);
 
