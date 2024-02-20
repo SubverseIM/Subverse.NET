@@ -14,15 +14,21 @@ namespace Subverse.Server
         public PersistentMessageQueue(IConfiguration configuration)
         {
             _configuration = configuration;
+
+            // Init LiteDB instance; create index over KeyedMessage.Key for efficient search!
             _db = new LiteDatabase(_configuration.GetConnectionString("MessageQueueImpl"));
+            _db.GetCollection<KeyedMessage>().EnsureIndex(x => x.Key);
         }
 
-        public Task<KeyedMessage> DequeueAsync()
+        public Task<KeyedMessage?> DequeueAsync()
         {
             var collection = _db.GetCollection<KeyedMessage>();
-            var keyedMessage = collection.Query().FirstOrDefault();
+            var keyedMessage = collection.FindAll().First();
 
-            collection.Delete(keyedMessage.Id);
+            if (keyedMessage is not null)
+            {
+                collection.Delete(keyedMessage.Id);
+            }
 
             return Task.FromResult(keyedMessage);
         }
@@ -30,17 +36,20 @@ namespace Subverse.Server
         public Task<SubverseMessage?> DequeueByKeyAsync(string key)
         {
             var collection = _db.GetCollection<KeyedMessage>();
-            var keyedMessage = collection.FindById(key);
+            var keyedMessage = collection.FindOne(x => x.Key == key);
 
-            collection.Delete(keyedMessage.Id);
+            if (keyedMessage is not null)
+            {
+                collection.Delete(keyedMessage.Id);
+            }
 
-            return Task.FromResult<SubverseMessage?>(keyedMessage.Message);
+            return Task.FromResult(keyedMessage?.Message);
         }
 
         public Task EnqueueAsync(string key, SubverseMessage message)
         {
             var collection = _db.GetCollection<KeyedMessage>();
-            var keyedMessage = new KeyedMessage(key, message);
+            var keyedMessage = new KeyedMessage(0, key, message);
 
             collection.Insert(keyedMessage);
 
