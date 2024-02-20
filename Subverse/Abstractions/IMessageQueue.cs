@@ -4,11 +4,11 @@ namespace Subverse.Abstractions
 {
     public interface IMessageQueue<TKey> : IDisposable
     {
-        public record KeyedMessage(TKey Id, SubverseMessage Message);
+        public record KeyedMessage(long Id, TKey Key, SubverseMessage Message);
 
         Task EnqueueAsync(TKey key, SubverseMessage message);
 
-        Task<KeyedMessage> DequeueAsync();
+        Task<KeyedMessage?> DequeueAsync();
 
         Task<SubverseMessage?> DequeueByKeyAsync(TKey key);
     }

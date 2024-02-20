@@ -133,7 +133,8 @@ namespace Subverse.Server
 
             while (keyedMessage is not null)
             {
-                await RouteMessageAsync(new(StringToByteArray(keyedMessage.Id)), keyedMessage.Message);
+                KNodeId256 recipient = new(StringToByteArray(keyedMessage.Key));
+                await RouteMessageAsync(recipient, keyedMessage.Message);
 
                 cancellationToken.ThrowIfCancellationRequested();
                 keyedMessage = await _messageQueue.DequeueAsync();
