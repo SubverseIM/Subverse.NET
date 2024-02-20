@@ -14,7 +14,10 @@ namespace Subverse.Server
         public PersistentMessageQueue(IConfiguration configuration)
         {
             _configuration = configuration;
+
+            // Init LiteDB instance; create index over KeyedMessage.Key for efficient search!
             _db = new LiteDatabase(_configuration.GetConnectionString("MessageQueueImpl"));
+            _db.GetCollection<KeyedMessage>().EnsureIndex(x => x.Key);
         }
 
         public Task<KeyedMessage?> DequeueAsync()
