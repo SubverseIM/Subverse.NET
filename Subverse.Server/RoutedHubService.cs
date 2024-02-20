@@ -1,5 +1,5 @@
 ﻿using Alethic.Kademlia;
-
+using Hangfire;
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
 using Subverse.Implementations;
@@ -31,6 +31,12 @@ namespace Subverse.Server
             _taskMap = new ConcurrentDictionary<KNodeId256, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId256, CancellationTokenSource>();
             _connectionMap = new ConcurrentDictionary<KNodeId256, IEntityConnection>();
+
+            // Schedule queue flushing job
+            RecurringJob.AddOrUpdate(
+                "Subverse.Server.RoutedHubService.FlushMessagesAsync",
+                () => FlushMessagesAsync(CancellationToken.None),
+                Cron.Minutely);
         }
 
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
