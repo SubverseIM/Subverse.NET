@@ -1,5 +1,4 @@
-﻿using Alethic.Kademlia;
-using Subverse.Models;
+﻿using Subverse.Models;
 
 namespace Subverse.Abstractions
 {
