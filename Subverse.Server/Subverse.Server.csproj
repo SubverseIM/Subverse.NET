@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="Hangfire.Core" Version="1.8.10" />
     <PackageReference Include="Hangfire.MemoryStorage" Version="1.8.0" />
+    <PackageReference Include="LiteDB" Version="5.0.18" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
   </ItemGroup>
 
