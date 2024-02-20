@@ -23,7 +23,6 @@ namespace Subverse.Server
             var keyedMessage = collection.Query().FirstOrDefault();
 
             collection.Delete(keyedMessage.Id);
-            _db.Commit();
 
             return Task.FromResult(keyedMessage);
         }
@@ -34,7 +33,6 @@ namespace Subverse.Server
             var keyedMessage = collection.FindById(key);
 
             collection.Delete(keyedMessage.Id);
-            _db.Commit();
 
             return Task.FromResult<SubverseMessage?>(keyedMessage.Message);
         }
@@ -45,7 +43,6 @@ namespace Subverse.Server
             var keyedMessage = new KeyedMessage(key, message);
 
             collection.Insert(keyedMessage);
-            _db.Commit();
 
             return Task.CompletedTask;
         }
