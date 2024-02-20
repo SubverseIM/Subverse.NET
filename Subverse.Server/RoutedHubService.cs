@@ -12,7 +12,7 @@ using System.Net.Security;
 
 namespace Subverse.Server
 {
-    internal class RoutedHubService : IHubService, IDisposable
+    internal class RoutedHubService : IHubService
     {
         private readonly ICookieStorage<KNodeId256> _cookieStorage;
         private readonly IMessageQueue<KNodeId256> _messageQueue;
@@ -21,8 +21,6 @@ namespace Subverse.Server
         private readonly ConcurrentDictionary<KNodeId256, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId256, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<KNodeId256, IEntityConnection> _connectionMap;
-
-        private bool disposedValue;
 
         public RoutedHubService(ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<KNodeId256> messageQueue, IPgpKeyProvider keyProvider)
         {
@@ -229,30 +227,6 @@ namespace Subverse.Server
                     }
                 }
             }
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposedValue)
-            {
-                if (disposing)
-                {
-                    foreach (var connection in _connectionMap.Values)
-                    {
-                        CloseConnectionAsync(connection).Wait();
-                    }
-
-
-                }
-
-                disposedValue = true;
-            }
-        }
-
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
         }
     }
 }
