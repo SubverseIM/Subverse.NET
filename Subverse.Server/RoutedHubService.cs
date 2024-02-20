@@ -6,7 +6,7 @@ using Subverse.Implementations;
 using Subverse.Models;
 
 using System.Collections.Concurrent;
-
+using System.Globalization;
 using System.Net.Quic;
 using System.Net.Security;
 
@@ -15,14 +15,24 @@ namespace Subverse.Server
     internal class RoutedHubService : IHubService
     {
         private readonly ICookieStorage<KNodeId256> _cookieStorage;
-        private readonly IMessageQueue<KNodeId256> _messageQueue;
+        private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
 
         private readonly ConcurrentDictionary<KNodeId256, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId256, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<KNodeId256, IEntityConnection> _connectionMap;
 
-        public RoutedHubService(ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<KNodeId256> messageQueue, IPgpKeyProvider keyProvider)
+        // Solution from: https://stackoverflow.com/a/321404
+        // Adapted for increased performance
+        private static byte[] StringToByteArray(string hex)
+        {
+            return Enumerable.Range(0, hex.Length)
+                             .Where(x => (x & 1) == 0)
+                             .Select(x => byte.Parse(hex.AsSpan().Slice(x, 2), NumberStyles.HexNumber))
+                             .ToArray();
+        }
+
+        public RoutedHubService(ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider)
         {
             _cookieStorage = cookieStorage;
             _messageQueue = messageQueue;
@@ -105,29 +115,28 @@ namespace Subverse.Server
         private async Task FlushMessagesAsync(KNodeId256 connectionId, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var message = await _messageQueue.DequeueByKeyAsync(connectionId);
+            var message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
 
             while (message is not null)
             {
                 await RouteMessageAsync(connectionId, message);
 
                 cancellationToken.ThrowIfCancellationRequested();
-                message = await _messageQueue.DequeueByKeyAsync(connectionId);
+                message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
             }
         }
 
         private async Task FlushMessagesAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var keyedMessageNull = await _messageQueue.DequeueAsync();
+            var keyedMessage = await _messageQueue.DequeueAsync();
 
-            while (keyedMessageNull is not null)
+            while (keyedMessage is not null)
             {
-                var keyedMessage = keyedMessageNull.Value;
-                await RouteMessageAsync(keyedMessage.Key, keyedMessage.Value);
+                await RouteMessageAsync(new(StringToByteArray(keyedMessage.Id)), keyedMessage.Message);
 
                 cancellationToken.ThrowIfCancellationRequested();
-                keyedMessageNull = await _messageQueue.DequeueAsync();
+                keyedMessage = await _messageQueue.DequeueAsync();
             }
         }
 
@@ -201,7 +210,7 @@ namespace Subverse.Server
                         {
                             // Our only hopes of contacting this hub have run out!! For now...
                             // Queue this message for future delivery.
-                            await _messageQueue.EnqueueAsync(recipient, message);
+                            await _messageQueue.EnqueueAsync(recipient.ToString(), message);
                         }
                     }
                 }
@@ -218,7 +227,7 @@ namespace Subverse.Server
                     if (node.MostRecentlySeenBy.RefersTo.Equals(connection?.ServiceId))
                     {
                         // Node was last seen by us, we'd better remember this message so we can (hopefully) eventually send it!
-                        await _messageQueue.EnqueueAsync(node.MostRecentlySeenBy.RefersTo, message);
+                        await _messageQueue.EnqueueAsync(node.MostRecentlySeenBy.RefersTo.ToString(), message);
                     }
                     else
                     {

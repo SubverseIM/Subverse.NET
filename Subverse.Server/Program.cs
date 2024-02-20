@@ -2,6 +2,7 @@ using Subverse.Server;
 using Subverse.Abstractions.Server;
 using Hangfire;
 using Hangfire.MemoryStorage;
+using Subverse.Abstractions;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -18,8 +19,8 @@ builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
 
 // Mission-critical
 builder.Services.AddSingleton<IHubService, RoutedHubService>();
-// TODO: Implement ICookieStorage with local db
-// TODO: Implement IMessageQueue with local db
+builder.Services.AddSingleton<IMessageQueue<string>, PersistentMessageQueue>();
+// Big TODO: Implement ICookieStorage<KNodeId256> with Subverse.Kademlia
 
 // Main
 builder.Services.AddHostedService<QuicListenerService>();
