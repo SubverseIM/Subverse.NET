@@ -1,7 +1,17 @@
 using Subverse.Server;
 using Subverse.Abstractions.Server;
+using Hangfire;
+using Hangfire.MemoryStorage;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Hangfire
+GlobalConfiguration.Configuration
+                .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+                .UseColouredConsoleLogProvider()
+                .UseSimpleAssemblyNameTypeSerializer()
+                .UseRecommendedSerializerSettings()
+                .UseMemoryStorage();
 
 // Helpers
 builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();

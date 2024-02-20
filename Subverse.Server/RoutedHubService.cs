@@ -1,5 +1,5 @@
 ﻿using Alethic.Kademlia;
-
+using Hangfire;
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
 using Subverse.Implementations;
@@ -12,7 +12,7 @@ using System.Net.Security;
 
 namespace Subverse.Server
 {
-    internal class RoutedHubService : IHubService
+    internal class RoutedHubService : IHubService, IDisposable
     {
         private readonly ICookieStorage<KNodeId256> _cookieStorage;
         private readonly IMessageQueue<KNodeId256> _messageQueue;
@@ -21,6 +21,8 @@ namespace Subverse.Server
         private readonly ConcurrentDictionary<KNodeId256, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId256, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<KNodeId256, IEntityConnection> _connectionMap;
+
+        private bool disposedValue;
 
         public RoutedHubService(ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<KNodeId256> messageQueue, IPgpKeyProvider keyProvider)
         {
@@ -31,6 +33,12 @@ namespace Subverse.Server
             _taskMap = new ConcurrentDictionary<KNodeId256, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId256, CancellationTokenSource>();
             _connectionMap = new ConcurrentDictionary<KNodeId256, IEntityConnection>();
+
+            // Schedule queue flushing job
+            RecurringJob.AddOrUpdate(
+                "Subverse.Server.RoutedHubService.FlushMessagesAsync",
+                () => FlushMessagesAsync(CancellationToken.None),
+                Cron.Minutely);
         }
 
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
@@ -221,6 +229,30 @@ namespace Subverse.Server
                     }
                 }
             }
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    foreach (var connection in _connectionMap.Values)
+                    {
+                        CloseConnectionAsync(connection).Wait();
+                    }
+
+
+                }
+
+                disposedValue = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
     }
 }
