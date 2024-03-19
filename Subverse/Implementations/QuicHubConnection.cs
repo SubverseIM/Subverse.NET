@@ -4,14 +4,15 @@ using Subverse.Models;
 using Org.BouncyCastle.Bcpg;
 using PgpCore;
 using System.Net.Quic;
+using System.Text;
 
 namespace Subverse.Implementations
 {
     public class QuicHubConnection : IEntityConnection
     {
         private readonly QuicConnection _quicConnection;
-        private readonly FileInfo _pgpKeyFile;
-        private readonly string _pgpKeyPassPhrase;
+        private readonly FileInfo _publicKeyFile, _privateKeyFile;
+        private readonly string _privateKeyPassPhrase;
 
         private QuicEntityConnection? _entityConnection;
         private CancellationTokenSource? _cts;
@@ -22,11 +23,12 @@ namespace Subverse.Implementations
         public KNodeId256? ServiceId { get; private set; }
         public KNodeId256? ConnectionId { get; private set; }
 
-        public QuicHubConnection(QuicConnection quicConnection, FileInfo pgpKeyFile, string pgpKeyPassPhrase)
+        public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string privateKeyPassPhrase)
         {
             _quicConnection = quicConnection;
-            _pgpKeyFile = pgpKeyFile;
-            _pgpKeyPassPhrase = pgpKeyPassPhrase;
+            _publicKeyFile = publicKeyFile;
+            _privateKeyFile = privateKeyFile;
+            _privateKeyPassPhrase = privateKeyPassPhrase;
         }
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived
@@ -41,14 +43,14 @@ namespace Subverse.Implementations
 
             remove
             {
-                if(_entityConnection is not null)
+                if (_entityConnection is not null)
                 {
                     _entityConnection.MessageReceived -= value;
                 }
             }
         }
 
-        public async Task CompleteHandshakeAsync()
+        public async Task CompleteHandshakeAsync(SubverseEntity self)
         {
 #pragma warning disable CA1416 // Validate platform compatibility
             var quicStream = await _quicConnection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
@@ -56,41 +58,69 @@ namespace Subverse.Implementations
 
             // Accpet handshake by storing their public key
             EncryptionKeys challengeKeys;
-            using (var pgpKeyFileStream = _pgpKeyFile.OpenRead())
+            using (var quicStreamReader = new BinaryReader(quicStream, Encoding.UTF8, true))
+            using (var privateKeyStream = _privateKeyFile.OpenRead())
             {
-                challengeKeys = new EncryptionKeys(quicStream, pgpKeyFileStream, _pgpKeyPassPhrase);
+                var keyLength = quicStreamReader.ReadInt32();
+                var keyBytes = quicStreamReader.ReadBytes(keyLength);
+
+                using var publicKeyStream = new MemoryStream(keyBytes);
+                challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
             }
             ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
 
+            byte[] blobBytes;
+
             // Send my own public key to the other party
-            using (var armoredOut = new ArmoredOutputStream(quicStream))
+            using (var memoryStream = new MemoryStream())
+            using (var publicKeyStream = _publicKeyFile.OpenRead())
+            using (var quicStreamWriter = new BinaryWriter(quicStream, Encoding.UTF8, true))
             {
-                var myKeys = new EncryptionKeys(_pgpKeyFile, _pgpKeyPassPhrase);
-                myKeys.PublicKey.Encode(armoredOut);
+                publicKeyStream.CopyTo(memoryStream);
+                publicKeyStream.Position = 0;
+
+                var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
+
+                quicStreamWriter.Write((int)memoryStream.Length);
+                quicStreamWriter.Write(memoryStream.ToArray());
 
                 ServiceId = new(myKeys.PublicKey.GetFingerprint());
+                blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
             }
 
             // Receive nonce from other party, decrypt/verify it
             byte[] receivedNonce;
+            using (var quicStreamReader = new BinaryReader(quicStream, Encoding.UTF8, true))
             using (var outputNonceStream = new MemoryStream())
             using (var pgp = new PGP(challengeKeys))
             {
-                pgp.DecryptAndVerify(quicStream, outputNonceStream);
+                var nonceLength = quicStreamReader.ReadInt32();
+                var nonceBytes = quicStreamReader.ReadBytes(nonceLength);
+
+                using var recievedNonceStream = new MemoryStream(nonceBytes);
+                pgp.DecryptAndVerify(recievedNonceStream, outputNonceStream);
+
                 receivedNonce = outputNonceStream.ToArray();
             }
 
             // Encrypt/sign nonce and send it to remote party
             using (var inputNonceStream = new MemoryStream(receivedNonce))
+            using (var sendNonceStream = new MemoryStream())
+            using (var quicStreamWriter = new BinaryWriter(quicStream, Encoding.UTF8, true))
             using (var pgp = new PGP(challengeKeys))
             {
-                pgp.EncryptAndSign(inputNonceStream, quicStream);
+                pgp.EncryptAndSign(inputNonceStream, sendNonceStream);
+                quicStreamWriter.Write((int)sendNonceStream.Length);
+                quicStreamWriter.Write(sendNonceStream.ToArray());
             }
 
             _cts = new CancellationTokenSource();
-            _entityConnection = new QuicEntityConnection(quicStream, _pgpKeyFile, _pgpKeyPassPhrase) 
-                { ServiceId = ServiceId, ConnectionId = ConnectionId };
+            _entityConnection = new QuicEntityConnection(quicStream, _publicKeyFile, _privateKeyFile, _privateKeyPassPhrase)
+            { ServiceId = ServiceId, ConnectionId = ConnectionId };
             _entityReceiveTask = _entityConnection.RecieveAsync(_cts.Token);
+
+            // Self-announce to other party
+            await _entityConnection.SendMessageAsync(new SubverseMessage([ServiceId.Value], 128, blobBytes));
         }
 
         public Task SendMessageAsync(SubverseMessage message)

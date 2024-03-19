@@ -10,7 +10,7 @@ namespace Subverse.Abstractions
 
         event EventHandler<MessageReceivedEventArgs> MessageReceived;
 
-        Task CompleteHandshakeAsync();
+        Task CompleteHandshakeAsync(SubverseEntity self);
 
         Task SendMessageAsync(SubverseMessage message);
     }

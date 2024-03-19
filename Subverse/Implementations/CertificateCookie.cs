@@ -29,10 +29,11 @@ namespace Subverse.Implementations
             if (result.IsVerified)
             {
                 Key = new(publicKeyContainer.PublicKey.GetFingerprint());
-                Body = JsonConvert.DeserializeObject<SubverseEntity>(cookieBody,
+                Body = JsonConvert.DeserializeObject<SubverseEntity>(result.ClearText,
                     new JsonSerializerSettings
                     {
-                        TypeNameHandling = TypeNameHandling.Auto
+                        TypeNameHandling = TypeNameHandling.Objects,
+                        Converters = { new NodeIdConverter() }
                     });
             }
             else
@@ -45,10 +46,11 @@ namespace Subverse.Implementations
 
         public static ICookie<KNodeId256> FromBlobBytes(byte[] blobBytes)
         {
-            using (var memoryStream = new MemoryStream(blobBytes))
-            using (var streamReader = new StreamReader(memoryStream, Encoding.UTF8))
+            using (var publicKeyStream = new MemoryStream(blobBytes[sizeof(int)..(BitConverter.ToInt32(blobBytes[..4]) + sizeof(int))]))
+            using (var bodyStream = new MemoryStream(blobBytes[(BitConverter.ToInt32(blobBytes[..4]) + sizeof(int))..]))
+            using (var streamReader = new StreamReader(bodyStream, Encoding.UTF8))
             {
-                var publicKeyContainer = new EncryptionKeys(memoryStream);
+                var publicKeyContainer = new EncryptionKeys(publicKeyStream);
                 var cookieBody = streamReader.ReadToEnd();
 
                 return new CertificateCookie(publicKeyContainer, cookieBody, blobBytes);

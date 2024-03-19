@@ -2,7 +2,8 @@
 {
     internal class PgpKeyProvider : IPgpKeyProvider
     {
-        private const string DEFAULT_PGP_PATH = "./conf/publicKey.asc";
+        private const string DEFAULT_PUBLICKEY_PATH = "./server/conf/hub-public.asc";
+        private const string DEFAULT_PRIVATEKEY_PATH = "./server/conf/hub-private.asc";
 
         private readonly IConfiguration _configuration;
 
@@ -11,17 +12,24 @@
             _configuration = configuration;
         }
 
-        public FileInfo GetFile()
+        public FileInfo GetPublicKeyFile()
         {
             var pgpKeyFile = new FileInfo(_configuration.GetRequiredSection("Privacy")
-                .GetValue<string>("PGPKeyPath") ?? DEFAULT_PGP_PATH);
+                .GetValue<string>("PublicKeyPath") ?? DEFAULT_PUBLICKEY_PATH);
             return pgpKeyFile;
         }
 
-        public string GetPassPhrase()
+        public FileInfo GetPrivateKeyFile()
+        {
+            var pgpKeyFile = new FileInfo(_configuration.GetRequiredSection("Privacy")
+                .GetValue<string>("PrivateKeyPath") ?? DEFAULT_PRIVATEKEY_PATH);
+            return pgpKeyFile;
+        }
+
+        public string GetPrivateKeyPassPhrase()
         {
             var pgpKeyPassPhrase = _configuration.GetRequiredSection("Privacy")
-                .GetValue<string>("PGPKeyPassPhrase") ?? string.Empty;
+                .GetValue<string>("PrivateKeyPassPhrase") ?? string.Empty;
             return pgpKeyPassPhrase;
         }
     }

@@ -1,5 +1,7 @@
 ﻿using Alethic.Kademlia;
+using Alethic.Kademlia.Network;
 using Hangfire;
+using Subverse.Stun;
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
 using Subverse.Implementations;
@@ -9,14 +11,22 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Quic;
 using System.Net.Security;
+using System.Net;
 
 namespace Subverse.Server
 {
     internal class RoutedHubService : IHubService
     {
+        private const string DEFAULT_SERVICE_HOSTNAME = "default.subverse";
+
+        private readonly IConfiguration _configuration;
+        private readonly IKHost<KNodeId256> _kHost;
         private readonly ICookieStorage<KNodeId256> _cookieStorage;
         private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
+        private readonly QuicListenerService _listener;
+
+        private readonly string _serviceHostname;
 
         private readonly ConcurrentDictionary<KNodeId256, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId256, CancellationTokenSource> _ctsMap;
@@ -32,11 +42,17 @@ namespace Subverse.Server
                              .ToArray();
         }
 
-        public RoutedHubService(ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider)
+        public RoutedHubService(IConfiguration configuration, IKHost<KNodeId256> kHost, ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, QuicListenerService listener)
         {
+            _configuration = configuration;
+            _serviceHostname = _configuration.GetSection("HubService")
+                .GetValue<string>("Hostname") ?? DEFAULT_SERVICE_HOSTNAME;
+
+            _kHost = kHost;
             _cookieStorage = cookieStorage;
             _messageQueue = messageQueue;
             _keyProvider = keyProvider;
+            _listener = listener;
 
             _taskMap = new ConcurrentDictionary<KNodeId256, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId256, CancellationTokenSource>();
@@ -51,7 +67,9 @@ namespace Subverse.Server
 
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
         {
-            await newConnection.CompleteHandshakeAsync();
+            var self = await GetSelfAsync();
+            await newConnection.CompleteHandshakeAsync(self);
+
             if (newConnection.ConnectionId is not null)
             {
                 var connectionId = newConnection.ConnectionId.Value;
@@ -112,7 +130,7 @@ namespace Subverse.Server
             }
         }
 
-        private async Task FlushMessagesAsync(KNodeId256 connectionId, CancellationToken cancellationToken)
+        public async Task FlushMessagesAsync(KNodeId256 connectionId, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
@@ -126,7 +144,7 @@ namespace Subverse.Server
             }
         }
 
-        private async Task FlushMessagesAsync(CancellationToken cancellationToken)
+        public async Task FlushMessagesAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var keyedMessage = await _messageQueue.DequeueAsync();
@@ -141,12 +159,40 @@ namespace Subverse.Server
             }
         }
 
+        public async Task<SubverseHub> GetSelfAsync()
+        {
+            var quicRemoteEndPoint = await _listener.GetRemoteEndPointAsync();
+            var kRemoteEndPoint = await _listener.GetRemoteEndPointAsync(30603);
+
+            return new SubverseHub(
+                    _serviceHostname,
+                    new UriBuilder()
+                    {
+                        Scheme = "udp",
+                        Host = kRemoteEndPoint.Address.ToString(),
+                        Port = kRemoteEndPoint.Port
+                    }.ToString(),
+                    new UriBuilder()
+                    {
+                        Scheme = "subverse",
+                        Host = quicRemoteEndPoint.Address.ToString(),
+                        Port = quicRemoteEndPoint.Port
+                    }.ToString(),
+                    [ /* No owner metadata for now... */ ]
+                    );
+        }
+
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
             var connection = sender as IEntityConnection;
             if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.ConnectionId))
             {
                 var entityCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
+                if (entityCookie.Body is SubverseHub hub)
+                {
+                    _kHost.RegisterEndpoint(new(hub.KHostUri));
+                }
+
                 await _cookieStorage.UpdateAsync(new(entityCookie.Key), entityCookie, default);
             }
             else if (e.Message.Tags.Length > 1)
@@ -180,26 +226,25 @@ namespace Subverse.Server
                             // Try connection w/ 5 second timeout
                             using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
                             {
+                                var serviceUri = new Uri(hub.ServiceUri);
                                 var quicConnection = await QuicConnection.ConnectAsync(
                                     new QuicClientConnectionOptions
                                     {
-                                        RemoteEndPoint = hub.ServiceEndpoint,
+                                        RemoteEndPoint = new DnsEndPoint(serviceUri.Host, serviceUri.Port),
 
                                         DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
                                         DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
 
-                                        ClientAuthenticationOptions =
+                                        ClientAuthenticationOptions = new()
                                         {
-                                ApplicationProtocols = new List<SslApplicationProtocol>
-                                {
-                                    SslApplicationProtocol.Http11,
-                                    SslApplicationProtocol.Http2,
-                                    SslApplicationProtocol.Http3
-                                },
-                                        }
+                                            ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
+                                            TargetHost = hub.Hostname
+                                        },
+
+                                        MaxInboundBidirectionalStreams = 10
                                     }, cts.Token);
 
-                                var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetFile(), _keyProvider.GetPassPhrase());
+                                var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
                                 await OpenConnectionAsync(hubConnection);
 #pragma warning restore CA1416 // Validate platform compatibility
 
