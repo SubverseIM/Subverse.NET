@@ -1,6 +1,6 @@
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
-
+using Subverse.Stun;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
@@ -12,25 +12,32 @@ namespace Subverse.Server
 #pragma warning disable CA1416 // Validate platform compatibility
     internal class QuicListenerService : BackgroundService
     {
-        private const string DEFAULT_CERT_PATH = "./conf/server.pem";
+        private const string DEFAULT_CERT_PATH = "./server/conf/server.pfx";
 
         private readonly ILogger<QuicListenerService> _logger;
+
         private readonly IConfiguration _configuration;
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IHubService _hubService;
 
-        public QuicListenerService(ILogger<QuicListenerService> logger, IConfiguration configuration, IPgpKeyProvider keyProvider, IHubService hubService)
+        private readonly IStunUriProvider _stunUriProvider;
+
+        private QuicListener? _listener;
+
+        public QuicListenerService(ILogger<QuicListenerService> logger, IConfiguration configuration, IPgpKeyProvider keyProvider, IHubService hubService, IStunUriProvider stunUriProvider)
         {
             _logger = logger;
             _configuration = configuration;
             _keyProvider = keyProvider;
             _hubService = hubService;
+            _stunUriProvider = stunUriProvider;
         }
 
         private X509Certificate GetServerCertificate()
         {
             var certPath = _configuration.GetSection("Privacy").GetValue<string>("SSLCertPath");
-            return X509Certificate.CreateFromSignedFile(certPath ?? DEFAULT_CERT_PATH);
+            var certPassword = _configuration.GetSection("Privacy").GetValue<string>("SSLCertPassword");
+            return new X509Certificate2(certPath ?? DEFAULT_CERT_PATH, certPassword);
         }
 
         private async Task ListenConnectionsAsync(QuicConnection quicConnection, CancellationToken cancellationToken)
@@ -40,9 +47,9 @@ namespace Subverse.Server
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var quicStream = await quicConnection.AcceptInboundStreamAsync(cancellationToken);
+                    var quicStream = await quicConnection.AcceptInboundStreamAsync();
 
-                    var entityConnection = new QuicEntityConnection(quicStream, _keyProvider.GetFile(), _keyProvider.GetPassPhrase());
+                    var entityConnection = new QuicEntityConnection(quicStream, _keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
                     connectionList.Add(entityConnection);
 
                     await _hubService.OpenConnectionAsync(entityConnection);
@@ -73,26 +80,18 @@ namespace Subverse.Server
 
                     ServerAuthenticationOptions = new SslServerAuthenticationOptions
                     {
-                        ApplicationProtocols = new List<SslApplicationProtocol>() 
-                        { 
-                            SslApplicationProtocol.Http11,
-                            SslApplicationProtocol.Http2,
-                            SslApplicationProtocol.Http3
-                        },
-                        ServerCertificate = GetServerCertificate(),
-                    }
+                        ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
+                        ServerCertificate = GetServerCertificate()
+                    },
+
+                    MaxInboundBidirectionalStreams = 10
                 };
 
-                var listener = await QuicListener.ListenAsync(
+                _listener = await QuicListener.ListenAsync(
                     new QuicListenerOptions
                     {
-                        ListenEndPoint = new(IPAddress.Any, 0),
-                        ApplicationProtocols = new List<SslApplicationProtocol>
-                        {
-                            SslApplicationProtocol.Http11,
-                            SslApplicationProtocol.Http2,
-                            SslApplicationProtocol.Http3
-                        },
+                        ListenEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                        ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
                         ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
                     });
 
@@ -101,7 +100,7 @@ namespace Subverse.Server
                 {
                     while (!stoppingToken.IsCancellationRequested)
                     {
-                        var quicConnection = await listener.AcceptConnectionAsync(stoppingToken);
+                        var quicConnection = await _listener.AcceptConnectionAsync(stoppingToken);
                         var listenTask = Task.Run(() => ListenConnectionsAsync(quicConnection, stoppingToken));
                         listenTasks.Add(listenTask);
                     }
@@ -109,9 +108,35 @@ namespace Subverse.Server
                 finally
                 {
                     await Task.WhenAll(listenTasks);
-                    await listener.DisposeAsync();
+                    await _listener.DisposeAsync();
                 }
             }
+        }
+
+        public async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
+        {
+            var stunClient = new StunClientUdp();
+            var stunResponse = await Task.WhenAny(
+                _stunUriProvider.GetAvailableAsync().Take(8)
+                    .Select(uri => stunClient.SendRequestAsync(new StunMessage([]), 
+                        localPortNum ?? _listener?.LocalEndPoint.Port ?? 0, uri ?? string.Empty))
+                    .ToEnumerable()).Result;
+
+            IPEndPoint remoteEndPoint = new IPEndPoint(IPAddress.None, 0);
+            foreach (var stunAttr in stunResponse.Attributes)
+            {
+                switch (stunAttr.Type)
+                {
+                    case StunAttributeType.MAPPED_ADDRESS:
+                        remoteEndPoint = stunAttr.GetMappedAddress();
+                        break;
+                    case StunAttributeType.XOR_MAPPED_ADDRESS:
+                        remoteEndPoint = stunAttr.GetXorMappedAddress();
+                        break;
+                }
+            }
+
+            return remoteEndPoint;
         }
     }
 #pragma warning restore CA1416 // Validate platform compatibility

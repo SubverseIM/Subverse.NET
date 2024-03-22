@@ -8,27 +8,29 @@ namespace Subverse.Implementations
 {
     public class LocalCertificateCookie : CertificateCookie
     {
+        private readonly Stream publicKeyStream;
         private readonly EncryptionKeys privateKeyContainer;
 
-        public LocalCertificateCookie(EncryptionKeys privateKeyContainer, SubverseEntity cookieBody) :
+        public LocalCertificateCookie(Stream publicKeyStream, EncryptionKeys privateKeyContainer, SubverseEntity cookieBody) :
             base(new(privateKeyContainer.PublicKey.GetFingerprint()), cookieBody)
         {
+            this.publicKeyStream = publicKeyStream;
             this.privateKeyContainer = privateKeyContainer;
         }
 
         public override byte[] ToBlobBytes()
         {
             using (var outputStreamFull = new MemoryStream())
+            using (var outputStreamWriter = new BinaryWriter(outputStreamFull))
             {
-                using (var armoredOutputStream = new ArmoredOutputStream(outputStreamFull))
-                {
-                    privateKeyContainer.PublicKey.Encode(armoredOutputStream);
-                }
+                outputStreamWriter.Write((int)publicKeyStream.Length);
+                publicKeyStream.CopyTo(outputStreamFull);
 
                 string cookieBodyJsonString = JsonConvert.SerializeObject(Body,
                     new JsonSerializerSettings
                     {
-                        TypeNameHandling = TypeNameHandling.Auto,
+                        TypeNameHandling = TypeNameHandling.Objects,
+                        Converters = { new NodeIdConverter() }
                     });
                 byte[] cookieBodyUtf8Bytes = Encoding.UTF8.GetBytes(cookieBodyJsonString);
                 using (var inputStreamBody = new MemoryStream(cookieBodyUtf8Bytes))

@@ -2,7 +2,8 @@
 {
     internal interface IPgpKeyProvider
     {
-        FileInfo GetFile();
-        string GetPassPhrase();
+        FileInfo GetPublicKeyFile();
+        FileInfo GetPrivateKeyFile();
+        string GetPrivateKeyPassPhrase();
     }
 }

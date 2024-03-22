@@ -8,6 +8,8 @@ using Org.BouncyCastle.Bcpg;
 using PgpCore;
 using System.Net.Quic;
 using System.Security.Cryptography;
+using Subverse.Implementations;
+using System.Text;
 
 namespace Subverse
 {
@@ -15,8 +17,8 @@ namespace Subverse
     public class QuicEntityConnection : IEntityConnection
     {
         private readonly QuicStream _quicStream;
-        private readonly FileInfo _pgpKeyFile;
-        private readonly string _pgpKeyPassPhrase;
+        private readonly FileInfo _publicKeyFile, _privateKeyFile;
+        private readonly string _privateKeyPassPhrase;
 
         private CancellationTokenSource? _cts;
         private Task? _receiveTask;
@@ -28,78 +30,104 @@ namespace Subverse
         public KNodeId256? ServiceId { get; internal set; }
         public KNodeId256? ConnectionId { get; internal set; }
 
-        public QuicEntityConnection(QuicStream quicStream, FileInfo pgpKeyFile, string pgpKeyPassPhrase)
+        public QuicEntityConnection(QuicStream quicStream, FileInfo publicKeyFile, FileInfo privateKeyFile, string privateKeyPassPhrase)
         {
             _quicStream = quicStream;
 
-            _pgpKeyFile = pgpKeyFile;
-            _pgpKeyPassPhrase = pgpKeyPassPhrase;
+            _publicKeyFile = publicKeyFile;
+            _privateKeyFile = privateKeyFile;
+            _privateKeyPassPhrase = privateKeyPassPhrase;
         }
 
-        public Task CompleteHandshakeAsync()
+        public async Task CompleteHandshakeAsync(SubverseEntity self)
         {
-            return Task.Run(() =>
+            byte[] blobBytes;
+
+            // Initiate handshake by exporting our public key to the remote party
+            using (var memoryStream = new MemoryStream())
+            using (var publicKeyStream = _publicKeyFile.OpenRead())
+            using (var quicStreamWriter = new BinaryWriter(_quicStream, Encoding.UTF8, true))
             {
-                // Initiate handshake by exporting our public key to the remote party
-                using (var armoredOut = new ArmoredOutputStream(_quicStream))
-                {
-                    var myKeys = new EncryptionKeys(_pgpKeyFile, _pgpKeyPassPhrase);
-                    myKeys.PublicKey.Encode(armoredOut);
+                publicKeyStream.CopyTo(memoryStream);
+                publicKeyStream.Position = 0;
 
-                    ServiceId = new(myKeys.PublicKey.GetFingerprint());
-                }
+                var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
 
-                // Continue handshake by storing their public key after they do the same
-                EncryptionKeys challengeKeys;
-                using (var pgpKeyFileStream = _pgpKeyFile.OpenRead())
-                {
-                    challengeKeys = new EncryptionKeys(_quicStream, pgpKeyFileStream, _pgpKeyPassPhrase);
-                }
-                ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
+                quicStreamWriter.Write((int)memoryStream.Length);
+                quicStreamWriter.Write(memoryStream.ToArray());
 
-                // Generate nonce
-                byte[] originalNonce = RandomNumberGenerator.GetBytes(64);
+                ServiceId = new(myKeys.PublicKey.GetFingerprint());
+                blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
+            }
 
-                // Encrypt/sign nonce and send it to remote party
-                using (var inputNonceStream = new MemoryStream(originalNonce))
-                using (var pgp = new PGP(challengeKeys))
-                {
-                    pgp.EncryptAndSign(inputNonceStream, _quicStream);
-                }
+            // Continue handshake by storing their public key after they do the same
+            EncryptionKeys challengeKeys;
+            using (var quicStreamReader = new BinaryReader(_quicStream, Encoding.UTF8, true))
+            using (var privateKeyStream = _privateKeyFile.OpenRead())
+            {
+                var keyLength = quicStreamReader.ReadInt32();
+                var keyBytes = quicStreamReader.ReadBytes(keyLength);
 
-                // IMPLICIT: other party receives encrypted nonce, decrypts/verifies, and encrypts/signs to send back to us.
+                using var publicKeyStream = new MemoryStream(keyBytes);
+                challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
+            }
+            ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
 
-                byte[] receivedNonce;
-                using (var outputNonceStream = new MemoryStream())
-                using (var pgp = new PGP(challengeKeys))
-                {
-                    pgp.DecryptAndVerify(_quicStream, outputNonceStream);
-                    receivedNonce = outputNonceStream.ToArray();
-                }
+            // Generate nonce
+            byte[] originalNonce = RandomNumberGenerator.GetBytes(64);
 
-                if (!originalNonce.SequenceEqual(receivedNonce))
-                {
-                    throw new InvalidEntityException($"Connection to entity with ID: \"{ConnectionId}\" could not be verified as authentic!");
-                }
+            // Encrypt/sign nonce and send it to remote party
+            using (var inputNonceStream = new MemoryStream(originalNonce))
+            using (var sendNonceStream = new MemoryStream())
+            using (var quicStreamWriter = new BinaryWriter(_quicStream, Encoding.UTF8, true))
+            using (var pgp = new PGP(challengeKeys))
+            {
+                pgp.EncryptAndSign(inputNonceStream, sendNonceStream);
+                quicStreamWriter.Write((int)sendNonceStream.Length);
+                quicStreamWriter.Write(sendNonceStream.ToArray());
+            }
 
-                _cts = new CancellationTokenSource();
-                _receiveTask = RecieveAsync(_cts.Token);
-            });
+            // IMPLICIT: other party receives encrypted nonce, decrypts/verifies, and encrypts/signs to send back to us.
+            byte[] receivedNonce;
+            using (var quicStreamReader = new BinaryReader(_quicStream, Encoding.UTF8, true))
+            using (var outputNonceStream = new MemoryStream())
+            using (var pgp = new PGP(challengeKeys))
+            {
+                var nonceLength = quicStreamReader.ReadInt32();
+                var nonceBytes = quicStreamReader.ReadBytes(nonceLength);
+
+                using var recievedNonceStream = new MemoryStream(nonceBytes);
+                pgp.DecryptAndVerify(recievedNonceStream, outputNonceStream);
+
+                receivedNonce = outputNonceStream.ToArray();
+            }
+
+            if (!originalNonce.SequenceEqual(receivedNonce))
+            {
+                throw new InvalidEntityException($"Connection to entity with ID: \"{ConnectionId}\" could not be verified as authentic!");
+            }
+
+            _cts = new CancellationTokenSource();
+            _receiveTask = RecieveAsync(_cts.Token);
+
+            // Self-announce to other party
+            await SendMessageAsync(new SubverseMessage([ServiceId.Value], 128, blobBytes));
         }
 
         internal Task RecieveAsync(CancellationToken cancellationToken)
         {
             return Task.Run(() =>
             {
-                using (var reader = new BsonDataReader(_quicStream))
+                using (var bsonReader = new BsonDataReader(_quicStream) { CloseInput = false, SupportMultipleContent = true })
                 {
-                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto };
+                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new NodeIdConverter() } };
                     while (!cancellationToken.IsCancellationRequested)
                     {
-                        var message = serializer.Deserialize<SubverseMessage>(reader)
+                        var message = serializer.Deserialize<SubverseMessage>(bsonReader)
                             ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
                         OnMessageRecieved(new MessageReceivedEventArgs(message));
                         cancellationToken.ThrowIfCancellationRequested();
+                        bsonReader.Read();
                     }
                 }
             }, cancellationToken);
@@ -107,10 +135,10 @@ namespace Subverse
 
         public Task SendMessageAsync(SubverseMessage message)
         {
-            using (var writer = new BsonDataWriter(_quicStream))
+            using (var bsonWriter = new BsonDataWriter(_quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
             {
-                var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto };
-                serializer.Serialize(writer, message);
+                var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new NodeIdConverter() } };
+                serializer.Serialize(bsonWriter, message);
             }
 
             return Task.CompletedTask;
