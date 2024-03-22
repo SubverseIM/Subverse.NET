@@ -1,4 +1,5 @@
 ﻿using Subverse.Models;
+using System.Net;
 
 namespace Subverse.Abstractions.Server
 {
@@ -8,5 +9,6 @@ namespace Subverse.Abstractions.Server
         Task CloseConnectionAsync(IEntityConnection connection);
 
         Task<SubverseHub> GetSelfAsync();
+        void SetLocalEndPoint(IPEndPoint localEndPoint);
     }
 }

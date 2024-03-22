@@ -48,7 +48,7 @@ builder.Services.AddSingleton<IKProtocol<KNodeId256>, KUdpProtocol<KNodeId256>>(
 builder.Services.AddSingleton<IKService, KStaticDiscovery<KNodeId256>>();
 
 builder.Services.Configure<KHostOptions<KNodeId256>>(options => { options.NetworkId = 30603; });
-builder.Services.Configure<KUdpOptions>(options => { options.Bind = new IPEndPoint(IPAddress.Any, 30604); });
+builder.Services.Configure<KUdpOptions>(options => { options.Bind = new IPEndPoint(IPAddress.Any, 30603); });
 
 // Mission-critical
 builder.Services.AddSingleton<IHubService, RoutedHubService>();

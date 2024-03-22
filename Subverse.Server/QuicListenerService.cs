@@ -20,17 +20,14 @@ namespace Subverse.Server
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IHubService _hubService;
 
-        private readonly IStunUriProvider _stunUriProvider;
-
         private QuicListener? _listener;
 
-        public QuicListenerService(ILogger<QuicListenerService> logger, IConfiguration configuration, IPgpKeyProvider keyProvider, IHubService hubService, IStunUriProvider stunUriProvider)
+        public QuicListenerService(ILogger<QuicListenerService> logger, IConfiguration configuration, IPgpKeyProvider keyProvider, IHubService hubService)
         {
             _logger = logger;
             _configuration = configuration;
             _keyProvider = keyProvider;
             _hubService = hubService;
-            _stunUriProvider = stunUriProvider;
         }
 
         private X509Certificate GetServerCertificate()
@@ -94,6 +91,7 @@ namespace Subverse.Server
                         ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
                         ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
                     });
+                _hubService.SetLocalEndPoint(_listener.LocalEndPoint);
 
                 var listenTasks = new List<Task>();
                 try
@@ -111,32 +109,6 @@ namespace Subverse.Server
                     await _listener.DisposeAsync();
                 }
             }
-        }
-
-        public async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
-        {
-            var stunClient = new StunClientUdp();
-            var stunResponse = await Task.WhenAny(
-                _stunUriProvider.GetAvailableAsync().Take(8)
-                    .Select(uri => stunClient.SendRequestAsync(new StunMessage([]), 
-                        localPortNum ?? _listener?.LocalEndPoint.Port ?? 0, uri ?? string.Empty))
-                    .ToEnumerable()).Result;
-
-            IPEndPoint remoteEndPoint = new IPEndPoint(IPAddress.None, 0);
-            foreach (var stunAttr in stunResponse.Attributes)
-            {
-                switch (stunAttr.Type)
-                {
-                    case StunAttributeType.MAPPED_ADDRESS:
-                        remoteEndPoint = stunAttr.GetMappedAddress();
-                        break;
-                    case StunAttributeType.XOR_MAPPED_ADDRESS:
-                        remoteEndPoint = stunAttr.GetXorMappedAddress();
-                        break;
-                }
-            }
-
-            return remoteEndPoint;
         }
     }
 #pragma warning restore CA1416 // Validate platform compatibility

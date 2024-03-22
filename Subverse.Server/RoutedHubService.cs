@@ -24,13 +24,15 @@ namespace Subverse.Server
         private readonly ICookieStorage<KNodeId256> _cookieStorage;
         private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
-        private readonly QuicListenerService _listener;
+        private readonly IStunUriProvider _stunUriProvider;
 
         private readonly string _serviceHostname;
 
         private readonly ConcurrentDictionary<KNodeId256, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId256, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<KNodeId256, IEntityConnection> _connectionMap;
+
+        private IPEndPoint? _localEndPoint;
 
         // Solution from: https://stackoverflow.com/a/321404
         // Adapted for increased performance
@@ -42,7 +44,7 @@ namespace Subverse.Server
                              .ToArray();
         }
 
-        public RoutedHubService(IConfiguration configuration, IKHost<KNodeId256> kHost, ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, QuicListenerService listener)
+        public RoutedHubService(IConfiguration configuration, IKHost<KNodeId256> kHost, ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, IStunUriProvider stunUriProvider)
         {
             _configuration = configuration;
             _serviceHostname = _configuration.GetSection("HubService")
@@ -52,7 +54,7 @@ namespace Subverse.Server
             _cookieStorage = cookieStorage;
             _messageQueue = messageQueue;
             _keyProvider = keyProvider;
-            _listener = listener;
+            _stunUriProvider = stunUriProvider;
 
             _taskMap = new ConcurrentDictionary<KNodeId256, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId256, CancellationTokenSource>();
@@ -161,8 +163,8 @@ namespace Subverse.Server
 
         public async Task<SubverseHub> GetSelfAsync()
         {
-            var quicRemoteEndPoint = await _listener.GetRemoteEndPointAsync();
-            var kRemoteEndPoint = await _listener.GetRemoteEndPointAsync(30603);
+            var quicRemoteEndPoint = await GetRemoteEndPointAsync();
+            var kRemoteEndPoint = await GetRemoteEndPointAsync(30603);
 
             return new SubverseHub(
                     _serviceHostname,
@@ -180,6 +182,37 @@ namespace Subverse.Server
                     }.ToString(),
                     [ /* No owner metadata for now... */ ]
                     );
+        }
+
+        public void SetLocalEndPoint(IPEndPoint localEndPoint) 
+        {
+            _localEndPoint = localEndPoint;
+        }
+
+        public async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
+        {
+            var stunClient = new StunClientUdp();
+            var stunResponse = await Task.WhenAny(
+                _stunUriProvider.GetAvailableAsync().Take(8)
+                    .Select(uri => stunClient.SendRequestAsync(new StunMessage([]),
+                        localPortNum ?? _localEndPoint?.Port ?? 0, uri ?? string.Empty))
+                    .ToEnumerable()).Result;
+
+            IPEndPoint remoteEndPoint = new IPEndPoint(IPAddress.None, 0);
+            foreach (var stunAttr in stunResponse.Attributes)
+            {
+                switch (stunAttr.Type)
+                {
+                    case StunAttributeType.MAPPED_ADDRESS:
+                        remoteEndPoint = stunAttr.GetMappedAddress();
+                        break;
+                    case StunAttributeType.XOR_MAPPED_ADDRESS:
+                        remoteEndPoint = stunAttr.GetXorMappedAddress();
+                        break;
+                }
+            }
+
+            return remoteEndPoint;
         }
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
