@@ -8,7 +8,7 @@ namespace Subverse.Abstractions.Server
         Task OpenConnectionAsync(IEntityConnection connection);
         Task CloseConnectionAsync(IEntityConnection connection);
 
-        Task<SubverseHub> GetSelfAsync();
+        SubverseHub GetSelf();
         void SetLocalEndPoint(IPEndPoint localEndPoint);
     }
 }

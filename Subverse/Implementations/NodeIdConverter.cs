@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace Subverse.Implementations
 {
-    internal class NodeIdConverter : JsonConverter<KNodeId256>
+    internal class NodeIdConverter : JsonConverter<KNodeId160>
     {
         private static byte[] StringToByteArray(string hex)
         {
@@ -14,12 +14,12 @@ namespace Subverse.Implementations
                              .ToArray();
         }
 
-        public override KNodeId256 ReadJson(JsonReader reader, Type objectType, KNodeId256 existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override KNodeId160 ReadJson(JsonReader reader, Type objectType, KNodeId160 existingValue, bool hasExistingValue, JsonSerializer serializer)
         {
-            return new KNodeId256(StringToByteArray((string?)reader.Value ?? string.Empty));
+            return new KNodeId160(StringToByteArray((string?)reader.Value ?? string.Empty));
         }
 
-        public override void WriteJson(JsonWriter writer, KNodeId256 value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, KNodeId160 value, JsonSerializer serializer)
         {
             writer.WriteValue(value.ToString());
         }

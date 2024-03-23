@@ -84,14 +84,16 @@ namespace Subverse.Server
                     MaxInboundBidirectionalStreams = 10
                 };
 
+                _hubService.SetLocalEndPoint(new IPEndPoint(IPAddress.Any, 30603));
+                _hubService.GetSelf();
+
                 _listener = await QuicListener.ListenAsync(
                     new QuicListenerOptions
                     {
-                        ListenEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                        ListenEndPoint = new IPEndPoint(IPAddress.Any, 30603),
                         ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
                         ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
                     });
-                _hubService.SetLocalEndPoint(_listener.LocalEndPoint);
 
                 var listenTasks = new List<Task>();
                 try

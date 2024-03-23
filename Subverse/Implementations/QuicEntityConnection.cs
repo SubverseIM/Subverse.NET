@@ -27,8 +27,8 @@ namespace Subverse
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public KNodeId256? ServiceId { get; internal set; }
-        public KNodeId256? ConnectionId { get; internal set; }
+        public KNodeId160? ServiceId { get; internal set; }
+        public KNodeId160? ConnectionId { get; internal set; }
 
         public QuicEntityConnection(QuicStream quicStream, FileInfo publicKeyFile, FileInfo privateKeyFile, string privateKeyPassPhrase)
         {

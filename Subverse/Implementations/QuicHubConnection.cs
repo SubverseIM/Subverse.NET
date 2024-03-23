@@ -20,8 +20,8 @@ namespace Subverse.Implementations
 
         private bool disposedValue;
 
-        public KNodeId256? ServiceId { get; private set; }
-        public KNodeId256? ConnectionId { get; private set; }
+        public KNodeId160? ServiceId { get; private set; }
+        public KNodeId160? ConnectionId { get; private set; }
 
         public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string privateKeyPassPhrase)
         {
