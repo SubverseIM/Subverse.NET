@@ -37,7 +37,7 @@ internal class HubBootstrapService : BackgroundService
             var certifiedSelf = new LocalCertificateCookie(publicKeyStream, privateKeyContainer, _hubService.GetSelf());
 
             using var apiResponseMessage = await _http.PostAsync("top", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
-            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub?[]?>();
+            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub[]>();
 
             return apiResponseArray?.Select(hub => (hub.Hostname, 
                 new IPEndPoint(IPAddress.Parse(new Uri(hub.ServiceUri).Host), new Uri(hub.ServiceUri).Port))) 
@@ -60,9 +60,9 @@ internal class HubBootstrapService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
+            try
             {
-                try
+                foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
                 {
                     // Try connection w/ 5 second timeout
                     using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
@@ -91,9 +91,9 @@ internal class HubBootstrapService : BackgroundService
                         await _hubService.OpenConnectionAsync(hubConnection);
                     }
                 }
-                catch (OperationCanceledException) { }
-                catch (QuicException) { }
             }
+            catch (Exception) { }
+
             await Task.Delay(TimeSpan.FromSeconds(5));
         }
     }

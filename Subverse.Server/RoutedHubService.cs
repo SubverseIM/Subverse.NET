@@ -50,10 +50,13 @@ namespace Subverse.Server
         public RoutedHubService(IConfiguration configuration, IKHost<KNodeId160> kHost, ICookieStorage<KNodeId160> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, IStunUriProvider stunUriProvider)
         {
             _configuration = configuration;
+
             _configHostname = _configuration.GetSection("HubService")?
                 .GetValue<string>("Hostname") ?? DEFAULT_CONFIG_HOSTNAME;
+
             _configStartTTL = _configuration.GetSection("HubService")?
                 .GetValue<int>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
+            QuicEntityConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _kHost = kHost;
             _cookieStorage = cookieStorage;
@@ -188,6 +191,7 @@ namespace Subverse.Server
                                 Host = kRemoteEndPoint.Address.ToString(),
                                 Port = kRemoteEndPoint.Port
                             }.ToString(),
+                            DateTime.UtcNow,
                             [ /* No owner metadata for now... */ ]
                             );
                 }

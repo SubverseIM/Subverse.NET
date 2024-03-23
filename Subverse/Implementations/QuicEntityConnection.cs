@@ -16,6 +16,8 @@ namespace Subverse
 #pragma warning disable CA1416 // Validate platform compatibility
     public class QuicEntityConnection : IEntityConnection
     {
+        public static int DEFAULT_CONFIG_START_TTL = 99;
+
         private readonly QuicStream _quicStream;
         private readonly FileInfo _publicKeyFile, _privateKeyFile;
         private readonly string _privateKeyPassPhrase;
@@ -111,7 +113,7 @@ namespace Subverse
             _receiveTask = RecieveAsync(_cts.Token);
 
             // Self-announce to other party
-            await SendMessageAsync(new SubverseMessage([ServiceId.Value], 128, blobBytes));
+            await SendMessageAsync(new SubverseMessage([ServiceId.Value], DEFAULT_CONFIG_START_TTL, blobBytes));
         }
 
         internal Task RecieveAsync(CancellationToken cancellationToken)

@@ -27,7 +27,7 @@ namespace Subverse.Bootstrapper.Controllers
 
         public SubverseController(IConfiguration configuration, IDistributedCache cache, ILogger<SubverseController> logger)
         {
-            _configTopN = configuration.GetSection("Bootstrapper")?.GetValue<int>("TopNListLength") ?? DEFAULT_CONFIG_TOPN;
+            _configTopN = configuration.GetSection("Bootstrapper")?.GetValue<int?>("TopNListLength") ?? DEFAULT_CONFIG_TOPN;
             _cache = cache;
             _logger = logger;
 
@@ -37,7 +37,7 @@ namespace Subverse.Bootstrapper.Controllers
         [HttpPost("top")]
         [Consumes("application/octet-stream")]
         [Produces("application/json")]
-        public SubverseHub?[]? ExchangeRecentlySeenPeerInfo()
+        public SubverseHub[] ExchangeRecentlySeenPeerInfo()
         {
             byte[] blobBytes;
             using (var memoryStream = new MemoryStream())
@@ -47,15 +47,23 @@ namespace Subverse.Bootstrapper.Controllers
             }
 
             var certifiedCookie = CertificateCookie.FromBlobBytes(blobBytes) as CertificateCookie;
-            if (certifiedCookie is not null && _keys.Contains(certifiedCookie.Key.ToString()))
+            if (certifiedCookie?.Body is not null && _keys.Contains(certifiedCookie.Key.ToString()))
             {
                 _logger.LogInformation($"Accepting request from claimed identity: {certifiedCookie.Key}");
 
-                _cache.SetString(certifiedCookie.Key.ToString(), JsonConvert.SerializeObject(certifiedCookie.Body as SubverseHub));
+                var cookieKey = certifiedCookie.Key.ToString();
+                var cookieBody = (SubverseHub)certifiedCookie.Body with { MostRecentlySeenOn = DateTime.UtcNow };
+                var jsonValue = JsonConvert.SerializeObject(cookieBody);
 
-                return _keys.Where(key => key != certifiedCookie.Key.ToString())
+                _cache.SetString(cookieKey, jsonValue);
+
+                return _keys
+                    .Where(key => key != cookieKey)
                     .Select(key => JsonConvert.DeserializeObject<SubverseHub>(_cache.GetString(key) ?? "null"))
+                    .OrderByDescending(x => x?.MostRecentlySeenOn ?? DateTime.MinValue)
                     .Where(x => x is not null)
+                    .Cast<SubverseHub>()
+                    .Take(_configTopN)
                     .ToArray();
             }
             else
