@@ -178,15 +178,15 @@ namespace Subverse.Server
                             _configHostname,
                             new UriBuilder()
                             {
-                                Scheme = "udp",
-                                Host = kRemoteEndPoint.Address.ToString(),
-                                Port = kRemoteEndPoint.Port
-                            }.ToString(),
-                            new UriBuilder()
-                            {
                                 Scheme = "subverse",
                                 Host = quicRemoteEndPoint.Address.ToString(),
                                 Port = quicRemoteEndPoint.Port
+                            }.ToString(),
+                            new UriBuilder()
+                            {
+                                Scheme = "udp",
+                                Host = kRemoteEndPoint.Address.ToString(),
+                                Port = kRemoteEndPoint.Port
                             }.ToString(),
                             [ /* No owner metadata for now... */ ]
                             );
