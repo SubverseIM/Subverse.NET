@@ -19,8 +19,4 @@
   <ItemGroup>
     <ProjectReference Include="..\Subverse\Subverse.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="server\" />
-  </ItemGroup>
 </Project>

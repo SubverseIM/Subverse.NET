@@ -37,7 +37,7 @@ internal class HubBootstrapService : BackgroundService
             var certifiedSelf = new LocalCertificateCookie(publicKeyStream, privateKeyContainer, _hubService.GetSelf());
 
             using var apiResponseMessage = await _http.PostAsync("top", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
-            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub[]>();
+            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub?[]?>();
 
             return apiResponseArray?.Select(hub => (hub.Hostname, 
                 new IPEndPoint(IPAddress.Parse(new Uri(hub.ServiceUri).Host), new Uri(hub.ServiceUri).Port))) 
@@ -86,12 +86,13 @@ internal class HubBootstrapService : BackgroundService
                             }, cts.Token);
 #pragma warning restore CA1416 // Validate platform compatibility
 
-                        var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetPublicKeyFile(), 
+                        var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetPublicKeyFile(),
                             _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
                         await _hubService.OpenConnectionAsync(hubConnection);
                     }
                 }
                 catch (OperationCanceledException) { }
+                catch (QuicException) { }
             }
             await Task.Delay(TimeSpan.FromSeconds(5));
         }

@@ -15,8 +15,8 @@ namespace Subverse.Bootstrapper.Controllers
 
         private readonly int _configTopN;
 
-        private readonly ConcurrentDictionary<string, SubverseHub?> _whitelistedHubs;
-        private readonly ConcurrentDictionary<string, DateTime?> _recentlySeenHubs;
+        private static Dictionary<string, SubverseHub?> _whitelistedHubs = new();
+        private static Dictionary<string, DateTime?> _recentlySeenHubs = new();
 
         private readonly ILogger<SubverseController> _logger;
 
@@ -32,8 +32,12 @@ namespace Subverse.Bootstrapper.Controllers
         public SubverseController(IConfiguration configuration, ILogger<SubverseController> logger)
         {
             _configTopN = configuration.GetSection("Bootstrapper")?.GetValue<int>("TopNListLength") ?? DEFAULT_CONFIG_TOPN;
-            _whitelistedHubs = new(GetWhitelistedKeys<SubverseHub>(configuration));
-            _recentlySeenHubs = new(GetWhitelistedKeys<DateTime?>(configuration));
+
+            lock (_whitelistedHubs)
+            {
+                _whitelistedHubs = _whitelistedHubs.Count == 0 ? new(GetWhitelistedKeys<SubverseHub>(configuration)) : _whitelistedHubs;
+                _recentlySeenHubs = _recentlySeenHubs.Count == 0 ? new(GetWhitelistedKeys<DateTime?>(configuration)) : _recentlySeenHubs;
+            }
 
             _logger = logger;
         }
@@ -41,12 +45,12 @@ namespace Subverse.Bootstrapper.Controllers
         [HttpPost("top")]
         [Consumes("application/octet-stream")]
         [Produces("application/json")]
-        public async Task<IResult> ExchangeRecentlySeenPeerInfo()
+        public SubverseHub?[]? ExchangeRecentlySeenPeerInfo()
         {
             byte[] blobBytes;
             using (var memoryStream = new MemoryStream()) 
             {
-                await Request.Body.CopyToAsync(memoryStream);
+                Request.Body.CopyToAsync(memoryStream).Wait();
                 blobBytes = memoryStream.ToArray();
             }
 
@@ -55,20 +59,23 @@ namespace Subverse.Bootstrapper.Controllers
             {
                 _logger.LogInformation($"Accepting request from claimed identity: {certifiedCookie.Key}");
 
-                _whitelistedHubs[certifiedCookie.Key.ToString()] = certifiedCookie.Body as SubverseHub;
-                _recentlySeenHubs[certifiedCookie.Key.ToString()] = DateTime.Now;
+                lock (_whitelistedHubs)
+                {
+                    _whitelistedHubs[certifiedCookie.Key.ToString()] = certifiedCookie.Body as SubverseHub;
+                    _recentlySeenHubs[certifiedCookie.Key.ToString()] = DateTime.Now;
 
-                return Results.Json<SubverseHub?[]?>(_whitelistedHubs
-                    .Where(x => x.Value is not null)
-                    .OrderByDescending(x => _recentlySeenHubs[x.Key] ?? DateTime.MinValue)
-                    .Select(x => x.Value)
-                    .Take(_configTopN)
-                    .ToArray());
+                    return _whitelistedHubs
+                        .Where(x => x.Value is not null && x.Key != certifiedCookie.Key.ToString())
+                        .OrderByDescending(x => _recentlySeenHubs[x.Key] ?? DateTime.MinValue)
+                        .Select(x => x.Value)
+                        .Take(_configTopN)
+                        .ToArray();
+                }
             }
             else
             {
                 _logger.LogInformation($"Denying request from claimed identity: {certifiedCookie?.Key.ToString() ?? "<NONE>"}");
-                return Results.Unauthorized();
+                return [];
             }
         }
     }
