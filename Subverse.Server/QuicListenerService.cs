@@ -44,7 +44,7 @@ namespace Subverse.Server
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var quicStream = await quicConnection.AcceptInboundStreamAsync();
+                    var quicStream = await quicConnection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
 
                     var entityConnection = new QuicEntityConnection(quicStream, _keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
                     connectionList.Add(entityConnection);

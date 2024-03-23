@@ -53,7 +53,7 @@ namespace Subverse.Implementations
         public async Task CompleteHandshakeAsync(SubverseEntity self)
         {
 #pragma warning disable CA1416 // Validate platform compatibility
-            var quicStream = await _quicConnection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
+            var quicStream = await _quicConnection.AcceptInboundStreamAsync();
 #pragma warning restore CA1416 // Validate platform compatibility
 
             // Accpet handshake by storing their public key
