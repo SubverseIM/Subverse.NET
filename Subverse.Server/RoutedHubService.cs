@@ -288,7 +288,7 @@ namespace Subverse.Server
                                 var quicConnection = await QuicConnection.ConnectAsync(
                                     new QuicClientConnectionOptions
                                     {
-                                        RemoteEndPoint = new DnsEndPoint(serviceUri.Host, serviceUri.Port),
+                                        RemoteEndPoint = new IPEndPoint(IPAddress.Parse(serviceUri.Host), serviceUri.Port),
 
                                         DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
                                         DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
@@ -310,7 +310,7 @@ namespace Subverse.Server
                                 await RouteMessageAsync(recipient, message with { TimeToLive = message.TimeToLive - 1 });
                             }
                         }
-                        catch (OperationCanceledException)
+                        catch (Exception)
                         {
                             // Our only hopes of contacting this hub have run out!! For now...
                             // Queue this message for future delivery.
