@@ -12,7 +12,7 @@ namespace Subverse.Implementations
     {
         private readonly QuicConnection _quicConnection;
         private readonly FileInfo _publicKeyFile, _privateKeyFile;
-        private readonly string _privateKeyPassPhrase;
+        private readonly string? _privateKeyPassPhrase;
 
         private QuicEntityConnection? _entityConnection;
         private CancellationTokenSource? _cts;
@@ -20,10 +20,10 @@ namespace Subverse.Implementations
 
         private bool disposedValue;
 
-        public KNodeId256? ServiceId { get; private set; }
-        public KNodeId256? ConnectionId { get; private set; }
+        public KNodeId160? ServiceId { get; private set; }
+        public KNodeId160? ConnectionId { get; private set; }
 
-        public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string privateKeyPassPhrase)
+        public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string? privateKeyPassPhrase)
         {
             _quicConnection = quicConnection;
             _publicKeyFile = publicKeyFile;
@@ -53,7 +53,7 @@ namespace Subverse.Implementations
         public async Task CompleteHandshakeAsync(SubverseEntity self)
         {
 #pragma warning disable CA1416 // Validate platform compatibility
-            var quicStream = await _quicConnection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
+            var quicStream = await _quicConnection.AcceptInboundStreamAsync();
 #pragma warning restore CA1416 // Validate platform compatibility
 
             // Accpet handshake by storing their public key

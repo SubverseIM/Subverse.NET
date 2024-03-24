@@ -8,14 +8,14 @@ using System.Text;
 
 namespace Subverse.Implementations
 {
-    public class CertificateCookie : ICookie<KNodeId256>
+    public class CertificateCookie : ICookie<KNodeId160>
     {
         private readonly byte[]? blobBytes;
 
-        public KNodeId256 Key { get; }
+        public KNodeId160 Key { get; }
         public SubverseEntity? Body { get; }
 
-        protected CertificateCookie(KNodeId256 key, SubverseEntity body)
+        protected CertificateCookie(KNodeId160 key, SubverseEntity body)
         {
             Key = key;
             Body = body;
@@ -28,7 +28,8 @@ namespace Subverse.Implementations
             var result = pgp.VerifyAndReadSignedArmoredString(cookieBody);
             if (result.IsVerified)
             {
-                Key = new(publicKeyContainer.PublicKey.GetFingerprint());
+                byte[] fingerprint = publicKeyContainer.PublicKey.GetFingerprint();
+                Key = new(fingerprint);
                 Body = JsonConvert.DeserializeObject<SubverseEntity>(result.ClearText,
                     new JsonSerializerSettings
                     {
@@ -44,7 +45,7 @@ namespace Subverse.Implementations
             this.blobBytes = blobBytes;
         }
 
-        public static ICookie<KNodeId256> FromBlobBytes(byte[] blobBytes)
+        public static ICookie<KNodeId160> FromBlobBytes(byte[] blobBytes)
         {
             using (var publicKeyStream = new MemoryStream(blobBytes[sizeof(int)..(BitConverter.ToInt32(blobBytes[..4]) + sizeof(int))]))
             using (var bodyStream = new MemoryStream(blobBytes[(BitConverter.ToInt32(blobBytes[..4]) + sizeof(int))..]))

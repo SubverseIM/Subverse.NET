@@ -4,6 +4,6 @@
     {
         FileInfo GetPublicKeyFile();
         FileInfo GetPrivateKeyFile();
-        string GetPrivateKeyPassPhrase();
+        string? GetPrivateKeyPassPhrase();
     }
 }

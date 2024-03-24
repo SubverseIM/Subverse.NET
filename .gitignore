@@ -363,3 +363,4 @@ MigrationBackup/
 FodyWeavers.xsd
 /Subverse.Server/server
 /Subverse.Server/appsettings.json
+/Subverse.Bootstrapper/appsettings.json

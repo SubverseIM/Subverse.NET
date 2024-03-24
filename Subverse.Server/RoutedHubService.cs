@@ -12,27 +12,32 @@ using System.Globalization;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net;
+using Subverse.Exceptions;
 
 namespace Subverse.Server
 {
     internal class RoutedHubService : IHubService
     {
-        private const string DEFAULT_SERVICE_HOSTNAME = "default.subverse";
+        private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
+        private const int DEFAULT_CONFIG_START_TTL = 99;
 
         private readonly IConfiguration _configuration;
-        private readonly IKHost<KNodeId256> _kHost;
-        private readonly ICookieStorage<KNodeId256> _cookieStorage;
+        private readonly ILogger<RoutedHubService> _logger;
+        private readonly IKHost<KNodeId160> _kHost;
+        private readonly ICookieStorage<KNodeId160> _cookieStorage;
         private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IStunUriProvider _stunUriProvider;
 
-        private readonly string _serviceHostname;
+        private readonly string _configHostname;
+        private readonly int _configStartTTL;
 
-        private readonly ConcurrentDictionary<KNodeId256, Task> _taskMap;
-        private readonly ConcurrentDictionary<KNodeId256, CancellationTokenSource> _ctsMap;
-        private readonly ConcurrentDictionary<KNodeId256, IEntityConnection> _connectionMap;
+        private readonly ConcurrentDictionary<KNodeId160, Task> _taskMap;
+        private readonly ConcurrentDictionary<KNodeId160, CancellationTokenSource> _ctsMap;
+        private readonly ConcurrentDictionary<KNodeId160, IEntityConnection> _connectionMap;
 
         private IPEndPoint? _localEndPoint;
+        private SubverseHub? _cachedSelf;
 
         // Solution from: https://stackoverflow.com/a/321404
         // Adapted for increased performance
@@ -44,21 +49,27 @@ namespace Subverse.Server
                              .ToArray();
         }
 
-        public RoutedHubService(IConfiguration configuration, IKHost<KNodeId256> kHost, ICookieStorage<KNodeId256> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, IStunUriProvider stunUriProvider)
+        public RoutedHubService(IConfiguration configuration, ILogger<RoutedHubService> logger, IKHost<KNodeId160> kHost, ICookieStorage<KNodeId160> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, IStunUriProvider stunUriProvider)
         {
             _configuration = configuration;
-            _serviceHostname = _configuration.GetSection("HubService")
-                .GetValue<string>("Hostname") ?? DEFAULT_SERVICE_HOSTNAME;
 
+            _configHostname = _configuration.GetSection("HubService")?
+                .GetValue<string>("Hostname") ?? DEFAULT_CONFIG_HOSTNAME;
+
+            _configStartTTL = _configuration.GetSection("HubService")?
+                .GetValue<int>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
+            QuicEntityConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
+
+            _logger = logger;
             _kHost = kHost;
             _cookieStorage = cookieStorage;
             _messageQueue = messageQueue;
             _keyProvider = keyProvider;
             _stunUriProvider = stunUriProvider;
 
-            _taskMap = new ConcurrentDictionary<KNodeId256, Task>();
-            _ctsMap = new ConcurrentDictionary<KNodeId256, CancellationTokenSource>();
-            _connectionMap = new ConcurrentDictionary<KNodeId256, IEntityConnection>();
+            _taskMap = new ConcurrentDictionary<KNodeId160, Task>();
+            _ctsMap = new ConcurrentDictionary<KNodeId160, CancellationTokenSource>();
+            _connectionMap = new ConcurrentDictionary<KNodeId160, IEntityConnection>();
 
             // Schedule queue flushing job
             RecurringJob.AddOrUpdate(
@@ -69,8 +80,7 @@ namespace Subverse.Server
 
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
         {
-            var self = await GetSelfAsync();
-            await newConnection.CompleteHandshakeAsync(self);
+            await newConnection.CompleteHandshakeAsync(GetSelf());
 
             if (newConnection.ConnectionId is not null)
             {
@@ -95,7 +105,7 @@ namespace Subverse.Server
                         return newCts;
                     });
 
-                Func<KNodeId256, Task> newTaskFactory = (key) =>
+                Func<KNodeId160, Task> newTaskFactory = (key) =>
                     Task.Run(() => FlushMessagesAsync(key, newCts.Token));
 
                 _ = _taskMap.AddOrUpdate(connectionId, newTaskFactory, (key, oldTask) =>
@@ -105,6 +115,10 @@ namespace Subverse.Server
                             oldTask.Wait();
                         }
                         catch (OperationCanceledException) { }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex.Message);
+                        }
 
                         return newTaskFactory(key);
                     });
@@ -126,13 +140,17 @@ namespace Subverse.Server
                     if (storedTask is not null) await storedTask;
                 }
                 catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, null);
+                }
 
                 _connectionMap.Remove(connectionId, out IEntityConnection? storedConnection);
                 storedConnection?.Dispose();
             }
         }
 
-        public async Task FlushMessagesAsync(KNodeId256 connectionId, CancellationToken cancellationToken)
+        public async Task FlushMessagesAsync(KNodeId160 connectionId, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
@@ -153,7 +171,7 @@ namespace Subverse.Server
 
             while (keyedMessage is not null)
             {
-                KNodeId256 recipient = new(StringToByteArray(keyedMessage.Key));
+                KNodeId160 recipient = new(StringToByteArray(keyedMessage.Key));
                 await RouteMessageAsync(recipient, keyedMessage.Message);
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -161,58 +179,76 @@ namespace Subverse.Server
             }
         }
 
-        public async Task<SubverseHub> GetSelfAsync()
+        public SubverseHub GetSelf()
         {
-            var quicRemoteEndPoint = await GetRemoteEndPointAsync();
-            var kRemoteEndPoint = await GetRemoteEndPointAsync(30603);
+            lock (this)
+            {
+                if (_cachedSelf is null)
+                {
+                    var quicRemoteEndPoint = GetRemoteEndPointAsync(30603).Result;
+                    var kRemoteEndPoint = GetRemoteEndPointAsync(30604).Result;
 
-            return new SubverseHub(
-                    _serviceHostname,
-                    new UriBuilder()
-                    {
-                        Scheme = "udp",
-                        Host = kRemoteEndPoint.Address.ToString(),
-                        Port = kRemoteEndPoint.Port
-                    }.ToString(),
-                    new UriBuilder()
-                    {
-                        Scheme = "subverse",
-                        Host = quicRemoteEndPoint.Address.ToString(),
-                        Port = quicRemoteEndPoint.Port
-                    }.ToString(),
-                    [ /* No owner metadata for now... */ ]
-                    );
+                    return _cachedSelf = new SubverseHub(
+                            _configHostname,
+                            new UriBuilder()
+                            {
+                                Scheme = "subverse",
+                                Host = quicRemoteEndPoint.Address.ToString(),
+                                Port = quicRemoteEndPoint.Port
+                            }.ToString(),
+                            new UriBuilder()
+                            {
+                                Scheme = "udp",
+                                Host = kRemoteEndPoint.Address.ToString(),
+                                Port = kRemoteEndPoint.Port
+                            }.ToString(),
+                            DateTime.UtcNow,
+                            [ /* No owner metadata for now... */ ]
+                            );
+                }
+                else
+                {
+                    return _cachedSelf;
+                }
+            }
         }
 
-        public void SetLocalEndPoint(IPEndPoint localEndPoint) 
+        public void SetLocalEndPoint(IPEndPoint localEndPoint)
         {
             _localEndPoint = localEndPoint;
         }
 
         public async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
         {
-            var stunClient = new StunClientUdp();
-            var stunResponse = await Task.WhenAny(
-                _stunUriProvider.GetAvailableAsync().Take(8)
-                    .Select(uri => stunClient.SendRequestAsync(new StunMessage([]),
-                        localPortNum ?? _localEndPoint?.Port ?? 0, uri ?? string.Empty))
-                    .ToEnumerable()).Result;
-
-            IPEndPoint remoteEndPoint = new IPEndPoint(IPAddress.None, 0);
-            foreach (var stunAttr in stunResponse.Attributes)
+            Exception? exInner = null;
+            string exMessage = "GetSelf: NAT traversal via STUN failed to obtain an external address for local port: " +
+                (localPortNum?.ToString() ?? _localEndPoint?.Port.ToString() ?? "<unspecified>");
+            try
             {
-                switch (stunAttr.Type)
+                var stunClient = new StunClientUdp();
+
+                StunMessage? stunResponse = null;
+                await foreach (var uri in _stunUriProvider.GetAvailableAsync().Take(8))
                 {
-                    case StunAttributeType.MAPPED_ADDRESS:
-                        remoteEndPoint = stunAttr.GetMappedAddress();
-                        break;
-                    case StunAttributeType.XOR_MAPPED_ADDRESS:
-                        remoteEndPoint = stunAttr.GetXorMappedAddress();
-                        break;
+                    stunResponse = await stunClient.SendRequestAsync(new StunMessage([]),
+                            localPortNum ?? _localEndPoint?.Port ?? 0, uri ?? string.Empty);
+                    break;
+                }
+
+                foreach (var stunAttr in stunResponse?.Attributes ?? [])
+                {
+                    switch (stunAttr.Type)
+                    {
+                        case StunAttributeType.MAPPED_ADDRESS:
+                            return stunAttr.GetMappedAddress();
+                        case StunAttributeType.XOR_MAPPED_ADDRESS:
+                            return stunAttr.GetXorMappedAddress();
+                    }
                 }
             }
+            catch (Exception ex) { exInner = ex; }
 
-            return remoteEndPoint;
+            throw new InvalidEntityException(exMessage, exInner);
         }
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
@@ -236,9 +272,13 @@ namespace Subverse.Server
             }
         }
 
-        private async Task RouteMessageAsync(KNodeId256 recipient, SubverseMessage message)
+        private async Task RouteMessageAsync(KNodeId160 recipient, SubverseMessage message)
         {
-            if (_connectionMap.TryGetValue(recipient, out IEntityConnection? connection))
+            if (message.TimeToLive < 0)
+            {
+                await RouteMessageAsync(recipient, message with { TimeToLive = _configStartTTL });
+            }
+            else if (_connectionMap.TryGetValue(recipient, out IEntityConnection? connection))
             {
                 // Forward the message via direct route, since they are already connected to us.
                 await (connection?.SendMessageAsync(message) ?? Task.CompletedTask);
@@ -263,7 +303,7 @@ namespace Subverse.Server
                                 var quicConnection = await QuicConnection.ConnectAsync(
                                     new QuicClientConnectionOptions
                                     {
-                                        RemoteEndPoint = new DnsEndPoint(serviceUri.Host, serviceUri.Port),
+                                        RemoteEndPoint = new IPEndPoint(IPAddress.Parse(serviceUri.Host), serviceUri.Port),
 
                                         DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
                                         DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
@@ -279,18 +319,23 @@ namespace Subverse.Server
 
                                 var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
                                 await OpenConnectionAsync(hubConnection);
+
 #pragma warning restore CA1416 // Validate platform compatibility
 
                                 // ...and forward the message to it! Decrement TTL because this causes an actual hop!
                                 await RouteMessageAsync(recipient, message with { TimeToLive = message.TimeToLive - 1 });
                             }
                         }
-                        catch (OperationCanceledException)
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex)
                         {
-                            // Our only hopes of contacting this hub have run out!! For now...
-                            // Queue this message for future delivery.
-                            await _messageQueue.EnqueueAsync(recipient.ToString(), message);
+                            // Log any unexpected errors.
+                            _logger.LogError(ex, null);
                         }
+
+                        // Our only hopes of contacting this hub have run out!! For now...
+                        // Queue this message for future delivery.
+                        await _messageQueue.EnqueueAsync(recipient.ToString(), message);
                     }
                 }
                 else if (entityCookie?.Body is SubverseUser user)

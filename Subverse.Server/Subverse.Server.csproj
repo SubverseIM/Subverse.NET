@@ -1,25 +1,23 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-	<EnablePreviewFeatures>true</EnablePreviewFeatures>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<EnablePreviewFeatures>true</EnablePreviewFeatures>
+		<UserSecretsId>e4b12c90-b56a-4770-9925-732c45eddb46</UserSecretsId>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Hangfire.Core" Version="1.8.10" />
-    <PackageReference Include="Hangfire.MemoryStorage" Version="1.8.0" />
-    <PackageReference Include="LiteDB" Version="5.0.18" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Hangfire.Core" Version="1.8.10" />
+		<PackageReference Include="Hangfire.MemoryStorage" Version="1.8.0" />
+		<PackageReference Include="LiteDB" Version="5.0.18" />
+		<PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+		<PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.3.5" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Subverse\Subverse.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="server\" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Subverse\Subverse.csproj" />
+	</ItemGroup>
 </Project>

@@ -2,6 +2,6 @@
 {
     internal interface IStunUriProvider
     {
-        IAsyncEnumerable<string?> GetAvailableAsync();
+        IAsyncEnumerable<string> GetAvailableAsync();
     }
 }

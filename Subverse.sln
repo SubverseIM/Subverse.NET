@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Subverse", "Subverse\Subver
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Subverse.Server", "Subverse.Server\Subverse.Server.csproj", "{7000CE27-4971-418A-A1EF-3ACFE350E59A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Subverse.Bootstrapper", "Subverse.Bootstrapper\Subverse.Bootstrapper.csproj", "{D9341960-B75D-4EEC-9BEC-0A903BC88E55}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{7000CE27-4971-418A-A1EF-3ACFE350E59A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7000CE27-4971-418A-A1EF-3ACFE350E59A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7000CE27-4971-418A-A1EF-3ACFE350E59A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D9341960-B75D-4EEC-9BEC-0A903BC88E55}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D9341960-B75D-4EEC-9BEC-0A903BC88E55}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D9341960-B75D-4EEC-9BEC-0A903BC88E55}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D9341960-B75D-4EEC-9BEC-0A903BC88E55}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

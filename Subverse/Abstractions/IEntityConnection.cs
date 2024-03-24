@@ -5,8 +5,8 @@ namespace Subverse.Abstractions
 {
     public interface IEntityConnection : IDisposable
     {
-        KNodeId256? ServiceId { get; }
-        KNodeId256? ConnectionId { get; }
+        KNodeId160? ServiceId { get; }
+        KNodeId160? ConnectionId { get; }
 
         event EventHandler<MessageReceivedEventArgs> MessageReceived;
 

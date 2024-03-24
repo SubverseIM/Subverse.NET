@@ -1,27 +1,40 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using static System.Net.WebRequestMethods;
-
-namespace Subverse.Server
+﻿namespace Subverse.Server
 {
-    internal class AlwaysOnlineStunUriProvider : IStunUriProvider
+    internal class AlwaysOnlineStunUriProvider : IStunUriProvider, IDisposable
     {
-        private const string ALWAYS_ONLINE_URL = "https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_ipv4s.txt";
+        private const string DEFAULT_CONFIG_ALWAYS_ONLINE_URL = "https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_ipv4s.txt";
 
-        public async IAsyncEnumerable<string?> GetAvailableAsync()
+        private readonly IConfiguration _configuration;
+        private readonly string _configAlwaysOnlineUrl;
+
+        private readonly HttpClient _http;
+
+        public AlwaysOnlineStunUriProvider(IConfiguration configuration)
         {
-            var http = new HttpClient();
-            using (var responseStream = await http.GetStreamAsync(ALWAYS_ONLINE_URL))
+            _configuration = configuration;
+
+            _configAlwaysOnlineUrl = _configuration.GetConnectionString("AlwaysOnlineStun") ??
+                DEFAULT_CONFIG_ALWAYS_ONLINE_URL;
+
+            _http = new HttpClient();
+        }
+
+        public async IAsyncEnumerable<string> GetAvailableAsync()
+        {
+            using (var responseStream = await _http.GetStreamAsync(_configAlwaysOnlineUrl))
             using (var responseReader = new StreamReader(responseStream))
             {
-                while (!responseReader.EndOfStream)
+                string? line;
+                while ((line = await responseReader.ReadLineAsync()) is not null)
                 {
-                    yield return await responseReader.ReadLineAsync();
+                    yield return $"stun://{line}";
                 }
             }
+        }
+
+        public void Dispose()
+        {
+            ((IDisposable)_http).Dispose();
         }
     }
 }

@@ -4,7 +4,7 @@ using Subverse.Implementations;
 
 namespace Subverse.Models
 {
-    public record SubverseNode(CookieReference<KNodeId256, CertificateCookie> MostRecentlySeenBy /* HUB */) 
+    public record SubverseNode(CookieReference<KNodeId160, CertificateCookie> MostRecentlySeenBy /* HUB */) 
         : SubverseEntity
     {
     }
