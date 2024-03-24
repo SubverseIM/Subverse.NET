@@ -20,7 +20,7 @@ namespace Subverse
 
         private readonly QuicStream _quicStream;
         private readonly FileInfo _publicKeyFile, _privateKeyFile;
-        private readonly string _privateKeyPassPhrase;
+        private readonly string? _privateKeyPassPhrase;
 
         private CancellationTokenSource? _cts;
         private Task? _receiveTask;
@@ -32,7 +32,7 @@ namespace Subverse
         public KNodeId160? ServiceId { get; internal set; }
         public KNodeId160? ConnectionId { get; internal set; }
 
-        public QuicEntityConnection(QuicStream quicStream, FileInfo publicKeyFile, FileInfo privateKeyFile, string privateKeyPassPhrase)
+        public QuicEntityConnection(QuicStream quicStream, FileInfo publicKeyFile, FileInfo privateKeyFile, string? privateKeyPassPhrase)
         {
             _quicStream = quicStream;
 

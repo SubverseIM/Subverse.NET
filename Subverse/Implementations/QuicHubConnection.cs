@@ -12,7 +12,7 @@ namespace Subverse.Implementations
     {
         private readonly QuicConnection _quicConnection;
         private readonly FileInfo _publicKeyFile, _privateKeyFile;
-        private readonly string _privateKeyPassPhrase;
+        private readonly string? _privateKeyPassPhrase;
 
         private QuicEntityConnection? _entityConnection;
         private CancellationTokenSource? _cts;
@@ -23,7 +23,7 @@ namespace Subverse.Implementations
         public KNodeId160? ServiceId { get; private set; }
         public KNodeId160? ConnectionId { get; private set; }
 
-        public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string privateKeyPassPhrase)
+        public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string? privateKeyPassPhrase)
         {
             _quicConnection = quicConnection;
             _publicKeyFile = publicKeyFile;

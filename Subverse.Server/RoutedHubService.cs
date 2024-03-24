@@ -12,6 +12,7 @@ using System.Globalization;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net;
+using Subverse.Exceptions;
 
 namespace Subverse.Server
 {
@@ -21,6 +22,7 @@ namespace Subverse.Server
         private const int DEFAULT_CONFIG_START_TTL = 99;
 
         private readonly IConfiguration _configuration;
+        private readonly ILogger<RoutedHubService> _logger;
         private readonly IKHost<KNodeId160> _kHost;
         private readonly ICookieStorage<KNodeId160> _cookieStorage;
         private readonly IMessageQueue<string> _messageQueue;
@@ -47,7 +49,7 @@ namespace Subverse.Server
                              .ToArray();
         }
 
-        public RoutedHubService(IConfiguration configuration, IKHost<KNodeId160> kHost, ICookieStorage<KNodeId160> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, IStunUriProvider stunUriProvider)
+        public RoutedHubService(IConfiguration configuration, ILogger<RoutedHubService> logger, IKHost<KNodeId160> kHost, ICookieStorage<KNodeId160> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, IStunUriProvider stunUriProvider)
         {
             _configuration = configuration;
 
@@ -58,6 +60,7 @@ namespace Subverse.Server
                 .GetValue<int>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
             QuicEntityConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
+            _logger = logger;
             _kHost = kHost;
             _cookieStorage = cookieStorage;
             _messageQueue = messageQueue;
@@ -112,6 +115,10 @@ namespace Subverse.Server
                             oldTask.Wait();
                         }
                         catch (OperationCanceledException) { }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex.Message);
+                        }
 
                         return newTaskFactory(key);
                     });
@@ -133,6 +140,10 @@ namespace Subverse.Server
                     if (storedTask is not null) await storedTask;
                 }
                 catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, null);
+                }
 
                 _connectionMap.Remove(connectionId, out IEntityConnection? storedConnection);
                 storedConnection?.Dispose();
@@ -209,31 +220,35 @@ namespace Subverse.Server
 
         public async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
         {
-            var stunClient = new StunClientUdp();
-
-            StunMessage? stunResponse = null;
-            await foreach (var uri in _stunUriProvider.GetAvailableAsync().Take(8))
+            Exception? exInner = null;
+            string exMessage = "GetSelf: NAT traversal via STUN failed to obtain an external address for local port: " +
+                (localPortNum?.ToString() ?? _localEndPoint?.Port.ToString() ?? "<unspecified>");
+            try
             {
-                stunResponse = await stunClient.SendRequestAsync(new StunMessage([]),
-                        localPortNum ?? _localEndPoint?.Port ?? 0, uri ?? string.Empty);
-                break;
-            }
+                var stunClient = new StunClientUdp();
 
-            IPEndPoint remoteEndPoint = new IPEndPoint(IPAddress.None, 0);
-            foreach (var stunAttr in stunResponse?.Attributes ?? Enumerable.Empty<StunAttribute>())
-            {
-                switch (stunAttr.Type)
+                StunMessage? stunResponse = null;
+                await foreach (var uri in _stunUriProvider.GetAvailableAsync().Take(8))
                 {
-                    case StunAttributeType.MAPPED_ADDRESS:
-                        remoteEndPoint = stunAttr.GetMappedAddress();
-                        break;
-                    case StunAttributeType.XOR_MAPPED_ADDRESS:
-                        remoteEndPoint = stunAttr.GetXorMappedAddress();
-                        break;
+                    stunResponse = await stunClient.SendRequestAsync(new StunMessage([]),
+                            localPortNum ?? _localEndPoint?.Port ?? 0, uri ?? string.Empty);
+                    break;
+                }
+
+                foreach (var stunAttr in stunResponse?.Attributes ?? [])
+                {
+                    switch (stunAttr.Type)
+                    {
+                        case StunAttributeType.MAPPED_ADDRESS:
+                            return stunAttr.GetMappedAddress();
+                        case StunAttributeType.XOR_MAPPED_ADDRESS:
+                            return stunAttr.GetXorMappedAddress();
+                    }
                 }
             }
+            catch (Exception ex) { exInner = ex; }
 
-            return remoteEndPoint;
+            throw new InvalidEntityException(exMessage, exInner);
         }
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
@@ -304,18 +319,23 @@ namespace Subverse.Server
 
                                 var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
                                 await OpenConnectionAsync(hubConnection);
+
 #pragma warning restore CA1416 // Validate platform compatibility
 
                                 // ...and forward the message to it! Decrement TTL because this causes an actual hop!
                                 await RouteMessageAsync(recipient, message with { TimeToLive = message.TimeToLive - 1 });
                             }
                         }
-                        catch (Exception)
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex)
                         {
-                            // Our only hopes of contacting this hub have run out!! For now...
-                            // Queue this message for future delivery.
-                            await _messageQueue.EnqueueAsync(recipient.ToString(), message);
+                            // Log any unexpected errors.
+                            _logger.LogError(ex, null);
                         }
+
+                        // Our only hopes of contacting this hub have run out!! For now...
+                        // Queue this message for future delivery.
+                        await _messageQueue.EnqueueAsync(recipient.ToString(), message);
                     }
                 }
                 else if (entityCookie?.Body is SubverseUser user)

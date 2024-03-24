@@ -2,11 +2,14 @@ using Alethic.Kademlia;
 using Alethic.Kademlia.InMemory;
 using Alethic.Kademlia.Json;
 using Alethic.Kademlia.Network.Udp;
+
 using Hangfire;
 using Hangfire.MemoryStorage;
+
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
 using Subverse.Server;
+
 using System.Net;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -23,7 +26,7 @@ GlobalConfiguration.Configuration
 builder.Services.AddTransient(provider =>
 {
     var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
-    const string categoryName = "Any";
+    const string categoryName = "ALL";
     return loggerFactory.CreateLogger(categoryName);
 });
 
@@ -56,11 +59,16 @@ builder.Services.AddSingleton<IMessageQueue<string>, PersistentMessageQueue>();
 builder.Services.AddSingleton<ICookieStorage<KNodeId160>, KCookieStorage>();
 
 // Main
+builder.Configuration.AddEnvironmentVariables("Subverse_");
 builder.Services.AddHostedService<QuicListenerService>();
 builder.Services.AddHostedService<HubBootstrapService>();
 builder.Services.AddHostedService<KHostedService>();
 
-// TODO: Add this as a Windows service too
+// Windows-specific
+builder.Services.AddWindowsService(options => 
+{
+    options.ServiceName = "Subverse.NET Hub Service";
+});
 
 var host = builder.Build();
 host.Run();

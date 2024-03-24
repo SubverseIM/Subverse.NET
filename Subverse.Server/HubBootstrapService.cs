@@ -12,20 +12,24 @@ using System.Net.Security;
 internal class HubBootstrapService : BackgroundService
 {
     private readonly IConfiguration _configuration;
+    private readonly ILogger<HubBootstrapService> _logger;
     private readonly IPgpKeyProvider _keyProvider;
     private readonly IHubService _hubService;
 
     private readonly string _configApiUrl;
     private readonly HttpClient _http;
 
-    public HubBootstrapService(IConfiguration configuration, IPgpKeyProvider keyProvider, IHubService hubService)
+    public HubBootstrapService(IConfiguration configuration, ILogger<HubBootstrapService> logger, IPgpKeyProvider keyProvider, IHubService hubService)
     {
         _configuration = configuration;
+
+        _configApiUrl = _configuration.GetConnectionString("BootstrapApi") ??
+            throw new ArgumentNullException(message: "Missing required ConnectionString from config: \"BootstrapApi\"", paramName: "configApiUrl");
+
+        _logger = logger;
         _keyProvider = keyProvider;
         _hubService = hubService;
 
-        _configApiUrl = _configuration.GetConnectionString("BootstrapApi") ??
-            throw new ArgumentNullException(message: "Missing ConnectionString from config: \"BootstrapApi\"", paramName: "configApiUrl");
         _http = new HttpClient() { BaseAddress = new(_configApiUrl) };
     }
 
@@ -39,20 +43,20 @@ internal class HubBootstrapService : BackgroundService
             using var apiResponseMessage = await _http.PostAsync("top", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
             var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub[]>();
 
-            return apiResponseArray?.Select(hub => (hub.Hostname, 
-                new IPEndPoint(IPAddress.Parse(new Uri(hub.ServiceUri).Host), new Uri(hub.ServiceUri).Port))) 
-                ?? Enumerable.Empty<(string, IPEndPoint)>();
+            return apiResponseArray?.Select(hub => (hub.Hostname,
+                new IPEndPoint(IPAddress.Parse(new Uri(hub.ServiceUri).Host), new Uri(hub.ServiceUri).Port)))
+                ?? [];
         }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_keyProvider.GetPublicKeyFile().Exists || !_keyProvider.GetPrivateKeyFile().Exists) 
+        if (!_keyProvider.GetPublicKeyFile().Exists || !_keyProvider.GetPrivateKeyFile().Exists)
         {
             using var pgp = new PGP();
             await pgp.GenerateKeyAsync(
-                publicKeyFileInfo: _keyProvider.GetPublicKeyFile(), 
-                privateKeyFileInfo: _keyProvider.GetPrivateKeyFile(), 
+                publicKeyFileInfo: _keyProvider.GetPublicKeyFile(),
+                privateKeyFileInfo: _keyProvider.GetPrivateKeyFile(),
                 username: _hubService.GetSelf().Hostname,
                 password: _keyProvider.GetPrivateKeyPassPhrase()
                 );
@@ -64,6 +68,8 @@ internal class HubBootstrapService : BackgroundService
             {
                 foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
                 {
+                    stoppingToken.ThrowIfCancellationRequested();
+
                     // Try connection w/ 5 second timeout
                     using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
                     {
@@ -92,9 +98,15 @@ internal class HubBootstrapService : BackgroundService
                     }
                 }
             }
-            catch (Exception) { }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, null);
+            }
 
             await Task.Delay(TimeSpan.FromSeconds(5));
         }
+
+        _http.Dispose();
     }
 }

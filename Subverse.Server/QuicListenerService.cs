@@ -12,29 +12,32 @@ namespace Subverse.Server
 #pragma warning disable CA1416 // Validate platform compatibility
     internal class QuicListenerService : BackgroundService
     {
-        private const string DEFAULT_CERT_PATH = "./server/conf/server.pfx";
-
-        private readonly ILogger<QuicListenerService> _logger;
+        private const string DEFAULT_CERT_PATH = "server/conf/server.pfx";
 
         private readonly IConfiguration _configuration;
+        private readonly IHostEnvironment _environment;
+        private readonly ILogger<QuicListenerService> _logger;
+
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IHubService _hubService;
 
         private QuicListener? _listener;
 
-        public QuicListenerService(ILogger<QuicListenerService> logger, IConfiguration configuration, IPgpKeyProvider keyProvider, IHubService hubService)
+        public QuicListenerService(IConfiguration configuration, IHostEnvironment environment, ILogger<QuicListenerService> logger, IPgpKeyProvider keyProvider, IHubService hubService)
         {
-            _logger = logger;
             _configuration = configuration;
+            _environment = environment;
+            _logger = logger;
             _keyProvider = keyProvider;
             _hubService = hubService;
         }
 
         private X509Certificate GetServerCertificate()
         {
-            var certPath = _configuration.GetSection("Privacy").GetValue<string>("SSLCertPath");
+            var certPath = _configuration.GetSection("Privacy").GetValue<string>("SSLCertPath") ?? DEFAULT_CERT_PATH;
             var certPassword = _configuration.GetSection("Privacy").GetValue<string>("SSLCertPassword");
-            return new X509Certificate2(certPath ?? DEFAULT_CERT_PATH, certPassword);
+            return new X509Certificate2(Path.IsPathFullyQualified(certPath) ? certPath :
+                Path.Combine(_environment.ContentRootPath, certPath), certPassword);
         }
 
         private async Task ListenConnectionsAsync(QuicConnection quicConnection, CancellationToken cancellationToken)
@@ -52,15 +55,16 @@ namespace Subverse.Server
                     await _hubService.OpenConnectionAsync(entityConnection);
                 }
             }
-            finally
+            catch (Exception ex)
             {
-                foreach (var entityConnection in connectionList)
-                {
-                    await _hubService.CloseConnectionAsync(entityConnection);
-                }
-
-                await quicConnection.DisposeAsync();
+                _logger.LogError(ex, null);
             }
+
+            foreach (var entityConnection in connectionList)
+            {
+                await _hubService.CloseConnectionAsync(entityConnection);
+            }
+            await quicConnection.DisposeAsync();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -105,11 +109,14 @@ namespace Subverse.Server
                         listenTasks.Add(listenTask);
                     }
                 }
-                finally
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
                 {
-                    await Task.WhenAll(listenTasks);
-                    await _listener.DisposeAsync();
+                    _logger.LogError(ex, null);
                 }
+
+                await Task.WhenAll(listenTasks);
+                await _listener.DisposeAsync();
             }
         }
     }
