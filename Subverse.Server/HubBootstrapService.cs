@@ -40,7 +40,7 @@ internal class HubBootstrapService : BackgroundService
             var privateKeyContainer = new EncryptionKeys(_keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
             var certifiedSelf = new LocalCertificateCookie(publicKeyStream, privateKeyContainer, _hubService.GetSelf());
 
-            using var apiResponseMessage = await _http.PostAsync("top", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
+            using var apiResponseMessage = await _http.PostAsync("ping", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
             var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub[]>();
 
             return apiResponseArray?.Select(hub => (hub.Hostname,

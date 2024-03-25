@@ -20,6 +20,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 
+app.UseDefaultFiles(new DefaultFilesOptions() { RedirectToAppendTrailingSlash = false });
+app.UseStaticFiles();
+
 app.MapControllers();
 
 app.Run();
