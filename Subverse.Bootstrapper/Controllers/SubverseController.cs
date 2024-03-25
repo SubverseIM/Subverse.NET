@@ -35,12 +35,6 @@ namespace Subverse.Bootstrapper.Controllers
             _keys = GetWhitelistedKeys(configuration) ?? [];
         }
 
-        [HttpGet("ping")]
-        public IActionResult RedirectToRoot() 
-        {
-            return RedirectPermanent("/subverse");
-        }
-
         [HttpPost("ping")]
         [Consumes("application/octet-stream")]
         [Produces("application/json")]
