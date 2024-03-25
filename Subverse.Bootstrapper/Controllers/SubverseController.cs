@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using Subverse.Implementations;
@@ -34,7 +35,13 @@ namespace Subverse.Bootstrapper.Controllers
             _keys = GetWhitelistedKeys(configuration) ?? [];
         }
 
-        [HttpPost("top")]
+        [HttpGet("ping")]
+        public IActionResult RedirectToRoot() 
+        {
+            return RedirectPermanent("/subverse");
+        }
+
+        [HttpPost("ping")]
         [Consumes("application/octet-stream")]
         [Produces("application/json")]
         public SubverseHub[] ExchangeRecentlySeenPeerInfo()

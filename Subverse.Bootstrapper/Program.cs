@@ -20,6 +20,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapControllers();
 
 app.Run();
