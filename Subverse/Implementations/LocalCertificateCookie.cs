@@ -21,9 +21,7 @@ namespace Subverse.Implementations
         public override byte[] ToBlobBytes()
         {
             using (var outputStreamFull = new MemoryStream())
-            using (var outputStreamWriter = new BinaryWriter(outputStreamFull))
             {
-                outputStreamWriter.Write((int)publicKeyStream.Length);
                 publicKeyStream.CopyTo(outputStreamFull);
 
                 string cookieBodyJsonString = JsonConvert.SerializeObject(Body,

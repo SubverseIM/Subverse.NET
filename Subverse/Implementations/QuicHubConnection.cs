@@ -1,8 +1,7 @@
 ﻿using Alethic.Kademlia;
+using PgpCore;
 using Subverse.Abstractions;
 using Subverse.Models;
-using Org.BouncyCastle.Bcpg;
-using PgpCore;
 using System.Net.Quic;
 using System.Text;
 
@@ -56,15 +55,20 @@ namespace Subverse.Implementations
             var quicStream = await _quicConnection.AcceptInboundStreamAsync();
 #pragma warning restore CA1416 // Validate platform compatibility
 
-            // Accpet handshake by storing their public key
+            // Accept handshake by storing their public key
             EncryptionKeys challengeKeys;
-            using (var quicStreamReader = new BinaryReader(quicStream, Encoding.UTF8, true))
+            using (var publicKeyStream = new MemoryStream())
+            using (var streamWriter = new StreamWriter(publicKeyStream, Encoding.UTF8))
+            using (var streamReader = new StreamReader(quicStream, Encoding.UTF8, leaveOpen: true))
             using (var privateKeyStream = _privateKeyFile.OpenRead())
             {
-                var keyLength = quicStreamReader.ReadInt32();
-                var keyBytes = quicStreamReader.ReadBytes(keyLength);
-
-                using var publicKeyStream = new MemoryStream(keyBytes);
+                string? line;
+                while ((line = streamReader.ReadLine()) != "-----END PGP PUBLIC KEY BLOCK-----")
+                {
+                    streamWriter.WriteLine(line);
+                }
+                streamWriter.WriteLine(line);
+                publicKeyStream.Position = 0;
                 challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
             }
             ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
@@ -72,17 +76,13 @@ namespace Subverse.Implementations
             byte[] blobBytes;
 
             // Send my own public key to the other party
-            using (var memoryStream = new MemoryStream())
             using (var publicKeyStream = _publicKeyFile.OpenRead())
             using (var quicStreamWriter = new BinaryWriter(quicStream, Encoding.UTF8, true))
             {
-                publicKeyStream.CopyTo(memoryStream);
+                publicKeyStream.CopyTo(quicStream);
                 publicKeyStream.Position = 0;
 
                 var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
-
-                quicStreamWriter.Write((int)memoryStream.Length);
-                quicStreamWriter.Write(memoryStream.ToArray());
 
                 ServiceId = new(myKeys.PublicKey.GetFingerprint());
                 blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
@@ -90,28 +90,32 @@ namespace Subverse.Implementations
 
             // Receive nonce from other party, decrypt/verify it
             byte[] receivedNonce;
-            using (var quicStreamReader = new BinaryReader(quicStream, Encoding.UTF8, true))
+            using (var receivedNonceStream = new MemoryStream())
+            using (var streamWriter = new StreamWriter(receivedNonceStream, Encoding.UTF8))
+            using (var streamReader = new StreamReader(quicStream, Encoding.UTF8, leaveOpen: true))
             using (var outputNonceStream = new MemoryStream())
             using (var pgp = new PGP(challengeKeys))
             {
-                var nonceLength = quicStreamReader.ReadInt32();
-                var nonceBytes = quicStreamReader.ReadBytes(nonceLength);
+                string? line;
+                while ((line = streamReader.ReadLine()) != "-----END PGP MESSAGE-----")
+                {
+                    streamWriter.WriteLine(line);
+                }
+                streamWriter.WriteLine(line);
+                receivedNonceStream.Position = 0;
 
-                using var recievedNonceStream = new MemoryStream(nonceBytes);
-                pgp.DecryptAndVerify(recievedNonceStream, outputNonceStream);
-
+                pgp.DecryptAndVerify(receivedNonceStream, outputNonceStream);
                 receivedNonce = outputNonceStream.ToArray();
             }
 
             // Encrypt/sign nonce and send it to remote party
             using (var inputNonceStream = new MemoryStream(receivedNonce))
             using (var sendNonceStream = new MemoryStream())
-            using (var quicStreamWriter = new BinaryWriter(quicStream, Encoding.UTF8, true))
             using (var pgp = new PGP(challengeKeys))
             {
                 pgp.EncryptAndSign(inputNonceStream, sendNonceStream);
-                quicStreamWriter.Write((int)sendNonceStream.Length);
-                quicStreamWriter.Write(sendNonceStream.ToArray());
+                sendNonceStream.Position = 0;
+                sendNonceStream.CopyTo(quicStream);
             }
 
             _cts = new CancellationTokenSource();
@@ -120,7 +124,7 @@ namespace Subverse.Implementations
             _entityReceiveTask = _entityConnection.RecieveAsync(_cts.Token);
 
             // Self-announce to other party
-            await _entityConnection.SendMessageAsync(new SubverseMessage([ServiceId.Value], 128, blobBytes));
+            await _entityConnection.SendMessageAsync(new SubverseMessage([ServiceId.Value], QuicEntityConnection.DEFAULT_CONFIG_START_TTL, blobBytes));
         }
 
         public Task SendMessageAsync(SubverseMessage message)
