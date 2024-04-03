@@ -60,18 +60,9 @@ namespace Subverse
 
             // Continue handshake by storing their public key after they do the same
             EncryptionKeys challengeKeys;
-            using (var publicKeyStream = new MemoryStream())
-            using (var streamWriter = new StreamWriter(publicKeyStream, Encoding.UTF8))
-            using (var streamReader = new StreamReader(_quicStream, Encoding.UTF8, leaveOpen: true))
             using (var privateKeyStream = _privateKeyFile.OpenRead())
             {
-                string? line;
-                while ((line = streamReader.ReadLine()) != "-----END PGP PUBLIC KEY BLOCK-----")
-                {
-                    streamWriter.WriteLine(line);
-                }
-                streamWriter.WriteLine(line);
-                publicKeyStream.Position = 0;
+                using var publicKeyStream = Utils.ExtractPGPBlockFromStream(_quicStream, "PUBLIC KEY BLOCK");
                 challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
             }
             ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
@@ -91,20 +82,10 @@ namespace Subverse
 
             // IMPLICIT: other party receives encrypted nonce, decrypts/verifies, and encrypts/signs to send back to us.
             byte[] receivedNonce;
-            using (var receivedNonceStream = new MemoryStream())
-            using (var streamWriter = new StreamWriter(receivedNonceStream, Encoding.UTF8))
-            using (var streamReader = new StreamReader(_quicStream, Encoding.UTF8, leaveOpen: true))
             using (var outputNonceStream = new MemoryStream())
             using (var pgp = new PGP(challengeKeys))
             {
-                string? line;
-                while ((line = streamReader.ReadLine()) != "-----END PGP MESSAGE-----")
-                {
-                    streamWriter.WriteLine(line);
-                }
-                streamWriter.WriteLine(line);
-                receivedNonceStream.Position = 0;
-
+                using var receivedNonceStream = Utils.ExtractPGPBlockFromStream(_quicStream, "MESSAGE");
                 pgp.DecryptAndVerify(receivedNonceStream, outputNonceStream);
                 receivedNonce = outputNonceStream.ToArray();
             }

@@ -48,20 +48,11 @@ namespace Subverse.Implementations
         public static ICookie<KNodeId160> FromBlobBytes(byte[] blobBytes)
         {
             using (var bodyStream = new MemoryStream(blobBytes))
-            using (var streamReader = new StreamReader(bodyStream, Encoding.UTF8))
-            using (var publicKeyStream = new MemoryStream())
-            using (var streamWriter = new StreamWriter(publicKeyStream, Encoding.UTF8))
+            using (var bodyReader = new StreamReader(bodyStream, Encoding.ASCII))
+            using (var publicKeyStream = Utils.ExtractPGPBlockFromStream(bodyReader, "PUBLIC KEY BLOCK"))
             {
-                string? line;
-                while((line = streamReader.ReadLine()) != "-----END PGP PUBLIC KEY BLOCK-----")
-                {
-                    streamWriter.WriteLine(line);
-                }
-                streamWriter.WriteLine(line);
-                publicKeyStream.Position = 0;
-
                 var publicKeyContainer = new EncryptionKeys(publicKeyStream);
-                var cookieBody = streamReader.ReadToEnd();
+                var cookieBody = bodyReader.ReadToEnd();
 
                 return new CertificateCookie(publicKeyContainer, cookieBody, blobBytes);
             }
