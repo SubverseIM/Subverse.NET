@@ -75,7 +75,14 @@ namespace Subverse.Implementations
                 var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
 
                 ServiceId = new(myKeys.PublicKey.GetFingerprint());
-                blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
+                if (self is SubverseNode node)
+                {
+                    blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, node with { MostRecentlySeenBy = new(ServiceId.Value) }).ToBlobBytes();
+                }
+                else
+                {
+                    blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
+                }
             }
 
             // Receive nonce from other party, decrypt/verify it

@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Subverse.Client": {
+      "commandName": "Project",
+      "commandLineArgs": "subverse.isamorphic.dev"
+    }
+  }
+}

@@ -111,9 +111,12 @@ namespace Subverse
                     var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new NodeIdConverter() } };
                     while (!cancellationToken.IsCancellationRequested)
                     {
-                        var message = serializer.Deserialize<SubverseMessage>(bsonReader)
-                            ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
-                        OnMessageRecieved(new MessageReceivedEventArgs(message));
+                        lock (_quicStream)
+                        {
+                            var message = serializer.Deserialize<SubverseMessage>(bsonReader)
+                                ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
+                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                        }
                         cancellationToken.ThrowIfCancellationRequested();
                         bsonReader.Read();
                     }
@@ -123,10 +126,13 @@ namespace Subverse
 
         public Task SendMessageAsync(SubverseMessage message)
         {
-            using (var bsonWriter = new BsonDataWriter(_quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
+            lock (_quicStream)
             {
-                var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new NodeIdConverter() } };
-                serializer.Serialize(bsonWriter, message);
+                using (var bsonWriter = new BsonDataWriter(_quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
+                {
+                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new NodeIdConverter() } };
+                    serializer.Serialize(bsonWriter, message);
+                }
             }
 
             return Task.CompletedTask;
