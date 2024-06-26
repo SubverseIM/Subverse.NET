@@ -4,7 +4,6 @@ using Subverse.Exceptions;
 using Subverse.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Bson;
-using Org.BouncyCastle.Bcpg;
 using PgpCore;
 using System.Net.Quic;
 using System.Security.Cryptography;

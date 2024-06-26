@@ -1,18 +1,17 @@
 ﻿using Alethic.Kademlia;
-using Alethic.Kademlia.Network;
 using Hangfire;
-using Subverse.Stun;
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
+using Subverse.Exceptions;
 using Subverse.Implementations;
 using Subverse.Models;
-
+using Subverse.Stun;
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
-using System.Net;
-using Subverse.Exceptions;
+using System.Text;
 
 namespace Subverse.Server
 {
@@ -264,11 +263,48 @@ namespace Subverse.Server
 
                 await _cookieStorage.UpdateAsync(new(entityCookie.Key), entityCookie, default);
             }
+            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.ServiceId)) 
+            {
+                await ProcessMessageAsync(e.Message);
+            }
             else if (e.Message.Tags.Length > 1)
             {
                 await Task.WhenAll(e.Message.Tags.Skip(1)
                     .Select(r => Task.Run(() => RouteMessageAsync(r, e.Message)))
                     );
+            }
+        }
+
+        private async Task ProcessMessageAsync(SubverseMessage message)
+        {
+            switch (message.Content[0])
+            {
+                /* PROTO_V1_COMMAND */
+                case 0x00:
+                    await ProcessCommandMessageAsync(message);
+                    break;
+
+            }
+        }
+
+        private async Task ProcessCommandMessageAsync(SubverseMessage message)
+        {
+            var connection = _connectionMap[message.Tags[0]];
+            if (connection.ConnectionId is null || connection.ServiceId is null)
+                throw new InvalidEntityException("No endpoint could be found!");
+
+            string command = Encoding.UTF8.GetString(message.Content[1..]);
+            switch (command) 
+            {
+                case "SubverseV1::Command::PING":
+                    await RouteMessageAsync(
+                        connection.ConnectionId.Value, 
+                        new SubverseMessage([
+                            connection.ServiceId.Value, 
+                            connection.ConnectionId.Value
+                            ], _configStartTTL,
+                            Encoding.UTF8.GetBytes("SubverseV1::Command::PONG")));
+                    break;
             }
         }
 

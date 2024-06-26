@@ -9,6 +9,15 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using System.Text;
 
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += Console_CancelKeyPress;
+
+void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
+{
+    cts.Cancel();
+    e.Cancel = true;
+}
+
 var publicKeyFile = new FileInfo("session_pub.asc");
 var privateKeyFile = new FileInfo("session_prv.asc");
 var privateKeyPassPhrase = RandomNumberGenerator.GetHexString(10);
@@ -30,56 +39,51 @@ SubverseNode nodeSelf = new SubverseNode(new());
 Console.WriteLine($"Connecting to Subverse Network using DNS endpoint: {args[0]}");
 try
 {
-    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
-    {
 #pragma warning disable CA1416 // Validate platform compatibility
-        var quicConnection = await QuicConnection.ConnectAsync(
-            new QuicClientConnectionOptions
+    var quicConnection = await QuicConnection.ConnectAsync(
+        new QuicClientConnectionOptions
+        {
+            RemoteEndPoint = new DnsEndPoint(args[0], 30603),
+
+            DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
+            DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
+
+            ClientAuthenticationOptions = new()
             {
-                RemoteEndPoint = new DnsEndPoint(args[0], 30603),
+                ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
+                TargetHost = args[0],
+            },
 
-                DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
-                DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
-
-                ClientAuthenticationOptions = new()
-                {
-                    ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
-                    TargetHost = args[0],
-                },
-
-                MaxInboundBidirectionalStreams = 10,
-            }, cts.Token);
+            MaxInboundBidirectionalStreams = 10,
+        }, cts.Token);
 #pragma warning restore CA1416 // Validate platform compatibility
 
-        hubConnection = new QuicHubConnection(quicConnection, publicKeyFile,
-            privateKeyFile, privateKeyPassPhrase);
+    hubConnection = new QuicHubConnection(quicConnection, publicKeyFile,
+        privateKeyFile, privateKeyPassPhrase);
 
-        await hubConnection.CompleteHandshakeAsync(nodeSelf);
-        if (hubConnection.ConnectionId is not null && hubConnection.ServiceId is not null)
-        {
-            nodeSelf = new SubverseNode(new(hubConnection.ConnectionId.Value));
-        }
-        else
-        {
-            throw new InvalidOperationException("Could not establish connection to hub service!!");
-        }
-
-        Console.WriteLine($"Connected to hub successfully! Using ServiceId: {hubConnection.ServiceId}");
-        hubConnection.MessageReceived += HubConnection_MessageReceived;
-
-        string? partnerIdString = Console.ReadLine();
-        var partnerId = new KNodeId160(Utils.StringToByteArray(partnerIdString ?? string.Empty));
-
-        string? nextMessageString = Console.ReadLine();
-        while (nextMessageString is not null)
-        {
-            var nextMessage = new SubverseMessage([hubConnection.ServiceId.Value, partnerId], 128, Encoding.UTF8.GetBytes(nextMessageString));
-            await hubConnection.SendMessageAsync(nextMessage);
-            nextMessageString = Console.ReadLine();
-        }
+    await hubConnection.CompleteHandshakeAsync(nodeSelf);
+    if (hubConnection.ConnectionId is not null && hubConnection.ServiceId is not null)
+    {
+        nodeSelf = new SubverseNode(new(hubConnection.ConnectionId.Value));
+    }
+    else
+    {
+        throw new InvalidOperationException("Could not establish connection to hub service!!");
     }
 
+    Console.WriteLine($"Connected to hub successfully! Using ServiceId: {hubConnection.ServiceId}");
+    hubConnection.MessageReceived += HubConnection_MessageReceived;
 
+    while (!cts.IsCancellationRequested)
+    {
+        var pingMsg = new SubverseMessage(
+            [hubConnection.ServiceId.Value, hubConnection.ConnectionId.Value], 
+            QuicEntityConnection.DEFAULT_CONFIG_START_TTL, 
+            Encoding.UTF8.GetBytes("\0SubverseV1::Command::PING")
+            );
+        await hubConnection.SendMessageAsync(pingMsg);
+        await Task.Delay(5000);
+    }
 }
 catch (OperationCanceledException) { }
 
