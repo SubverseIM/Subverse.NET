@@ -103,24 +103,39 @@ namespace Subverse
 
         internal Task RecieveAsync(CancellationToken cancellationToken)
         {
-            return Task.Run(() =>
-            {
-                using (var bsonReader = new BsonDataReader(_quicStream) { CloseInput = false, SupportMultipleContent = true })
+            return Task.WhenAll([
+                Task.Run(() =>
                 {
-                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new NodeIdConverter() } };
-                    while (!cancellationToken.IsCancellationRequested)
+                    using (var bsonReader = new BsonDataReader(_quicStream) { CloseInput = false, SupportMultipleContent = true })
                     {
-                        lock (_quicStream)
+                        var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new NodeIdConverter() } };
+                        while (!cancellationToken.IsCancellationRequested)
                         {
                             var message = serializer.Deserialize<SubverseMessage>(bsonReader)
                                 ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            cancellationToken.ThrowIfCancellationRequested();
+                            bsonReader.Read();
                         }
-                        cancellationToken.ThrowIfCancellationRequested();
-                        bsonReader.Read();
                     }
-                }
-            }, cancellationToken);
+                }, cancellationToken),
+                Task.Run(async Task? () =>
+                {
+                    if(ConnectionId is null)
+                        throw new InvalidEntityException("No endpoint could be found!");
+
+                    while(!cancellationToken.IsCancellationRequested)
+                    {
+                        var pingMsg = new SubverseMessage(
+                            [ConnectionId.Value, default],
+                            DEFAULT_CONFIG_START_TTL,
+                            Encoding.UTF8.GetBytes("\0SubverseV1::Command::PING")
+                            );
+                        await SendMessageAsync(pingMsg);
+                        await Task.Delay(5000, cancellationToken);
+                    }
+                })
+            ]);
         }
 
         public Task SendMessageAsync(SubverseMessage message)
