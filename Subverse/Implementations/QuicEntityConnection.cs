@@ -46,17 +46,13 @@ namespace Subverse
             byte[] blobBytes;
 
             // Initiate handshake by exporting our public key to the remote party
-            using (var memoryStream = new MemoryStream())
             using (var publicKeyStream = _publicKeyFile.OpenRead())
             using (var quicStreamWriter = new BinaryWriter(_quicStream, Encoding.UTF8, true))
             {
-                publicKeyStream.CopyTo(memoryStream);
+                publicKeyStream.CopyTo(_quicStream);
                 publicKeyStream.Position = 0;
 
                 var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
-
-                quicStreamWriter.Write((int)memoryStream.Length);
-                quicStreamWriter.Write(memoryStream.ToArray());
 
                 ServiceId = new(myKeys.PublicKey.GetFingerprint());
                 blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
@@ -64,13 +60,9 @@ namespace Subverse
 
             // Continue handshake by storing their public key after they do the same
             EncryptionKeys challengeKeys;
-            using (var quicStreamReader = new BinaryReader(_quicStream, Encoding.UTF8, true))
             using (var privateKeyStream = _privateKeyFile.OpenRead())
             {
-                var keyLength = quicStreamReader.ReadInt32();
-                var keyBytes = quicStreamReader.ReadBytes(keyLength);
-
-                using var publicKeyStream = new MemoryStream(keyBytes);
+                using var publicKeyStream = Utils.ExtractPGPBlockFromStream(_quicStream, "PUBLIC KEY BLOCK");
                 challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
             }
             ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
@@ -81,26 +73,20 @@ namespace Subverse
             // Encrypt/sign nonce and send it to remote party
             using (var inputNonceStream = new MemoryStream(originalNonce))
             using (var sendNonceStream = new MemoryStream())
-            using (var quicStreamWriter = new BinaryWriter(_quicStream, Encoding.UTF8, true))
             using (var pgp = new PGP(challengeKeys))
             {
                 pgp.EncryptAndSign(inputNonceStream, sendNonceStream);
-                quicStreamWriter.Write((int)sendNonceStream.Length);
-                quicStreamWriter.Write(sendNonceStream.ToArray());
+                sendNonceStream.Position = 0;
+                sendNonceStream.CopyTo(_quicStream);
             }
 
             // IMPLICIT: other party receives encrypted nonce, decrypts/verifies, and encrypts/signs to send back to us.
             byte[] receivedNonce;
-            using (var quicStreamReader = new BinaryReader(_quicStream, Encoding.UTF8, true))
             using (var outputNonceStream = new MemoryStream())
             using (var pgp = new PGP(challengeKeys))
             {
-                var nonceLength = quicStreamReader.ReadInt32();
-                var nonceBytes = quicStreamReader.ReadBytes(nonceLength);
-
-                using var recievedNonceStream = new MemoryStream(nonceBytes);
-                pgp.DecryptAndVerify(recievedNonceStream, outputNonceStream);
-
+                using var receivedNonceStream = Utils.ExtractPGPBlockFromStream(_quicStream, "MESSAGE");
+                pgp.DecryptAndVerify(receivedNonceStream, outputNonceStream);
                 receivedNonce = outputNonceStream.ToArray();
             }
 

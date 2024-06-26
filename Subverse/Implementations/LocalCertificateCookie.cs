@@ -1,7 +1,7 @@
-﻿using Subverse.Models;
+﻿using Cogito.IO;
 using Newtonsoft.Json;
-using Org.BouncyCastle.Bcpg;
 using PgpCore;
+using Subverse.Models;
 using System.Text;
 
 namespace Subverse.Implementations
@@ -20,27 +20,25 @@ namespace Subverse.Implementations
 
         public override byte[] ToBlobBytes()
         {
-            using (var outputStreamFull = new MemoryStream())
-            using (var outputStreamWriter = new BinaryWriter(outputStreamFull))
-            {
-                outputStreamWriter.Write((int)publicKeyStream.Length);
-                publicKeyStream.CopyTo(outputStreamFull);
+            publicKeyStream.Position = 0;
+            List<byte> cookieBytesFull = publicKeyStream.ReadAllBytes().ToList();
 
-                string cookieBodyJsonString = JsonConvert.SerializeObject(Body,
-                    new JsonSerializerSettings
-                    {
-                        TypeNameHandling = TypeNameHandling.Objects,
-                        Converters = { new NodeIdConverter() }
-                    });
-                byte[] cookieBodyUtf8Bytes = Encoding.UTF8.GetBytes(cookieBodyJsonString);
-                using (var inputStreamBody = new MemoryStream(cookieBodyUtf8Bytes))
-                using (var pgp = new PGP(privateKeyContainer))
+            string cookieBodyJsonString = JsonConvert.SerializeObject(Body,
+                new JsonSerializerSettings
                 {
-                    pgp.SignStream(inputStreamBody, outputStreamFull);
-                }
-
-                return outputStreamFull.ToArray();
+                    TypeNameHandling = TypeNameHandling.Objects,
+                    Converters = { new NodeIdConverter() }
+                });
+            byte[] cookieBodyUtf8Bytes = Encoding.UTF8.GetBytes(cookieBodyJsonString);
+            using (var inputStreamBody = new MemoryStream(cookieBodyUtf8Bytes))
+            using (var outputStream = new MemoryStream())
+            using (var pgp = new PGP(privateKeyContainer))
+            {
+                pgp.SignStream(inputStreamBody, outputStream);
+                cookieBytesFull.AddRange(outputStream.ToArray());
             }
+
+            return cookieBytesFull.ToArray();
         }
     }
 }

@@ -47,12 +47,12 @@ namespace Subverse.Implementations
 
         public static ICookie<KNodeId160> FromBlobBytes(byte[] blobBytes)
         {
-            using (var publicKeyStream = new MemoryStream(blobBytes[sizeof(int)..(BitConverter.ToInt32(blobBytes[..4]) + sizeof(int))]))
-            using (var bodyStream = new MemoryStream(blobBytes[(BitConverter.ToInt32(blobBytes[..4]) + sizeof(int))..]))
-            using (var streamReader = new StreamReader(bodyStream, Encoding.UTF8))
+            using (var bodyStream = new MemoryStream(blobBytes))
+            using (var bodyReader = new StreamReader(bodyStream, Encoding.ASCII))
+            using (var publicKeyStream = Utils.ExtractPGPBlockFromStream(bodyReader, "PUBLIC KEY BLOCK"))
             {
                 var publicKeyContainer = new EncryptionKeys(publicKeyStream);
-                var cookieBody = streamReader.ReadToEnd();
+                var cookieBody = bodyReader.ReadToEnd();
 
                 return new CertificateCookie(publicKeyContainer, cookieBody, blobBytes);
             }
