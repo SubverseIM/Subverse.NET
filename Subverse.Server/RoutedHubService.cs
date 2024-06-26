@@ -295,8 +295,8 @@ namespace Subverse.Server
 
         private async Task ProcessCommandMessageAsync(SubverseMessage message)
         {
-            var connection = _connectionMap[message.Tags[0]];
-            if (connection.ConnectionId is null || connection.ServiceId is null)
+            if (!_connectionMap.TryGetValue(message.Tags[0], out IEntityConnection? connection) || 
+                (connection.ConnectionId is null || connection.ServiceId is null))
                 throw new InvalidEntityException("No endpoint could be found!");
 
             string command = Encoding.UTF8.GetString(message.Content[1..]);
