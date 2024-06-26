@@ -295,22 +295,25 @@ namespace Subverse.Server
 
         private async Task ProcessCommandMessageAsync(SubverseMessage message)
         {
-            if (_connectionMap.TryGetValue(message.Tags[0], out IEntityConnection? connection) && 
+            if (!_connectionMap.TryGetValue(message.Tags[0], out IEntityConnection? connection) ||
                 (connection.ConnectionId is null || connection.ServiceId is null))
                 throw new InvalidEntityException("No endpoint could be found!");
 
-            string command = Encoding.UTF8.GetString(message.Content[1..]);
-            switch (command) 
+            if (connection is not null)
             {
-                case "SubverseV1::Command::PING":
-                    await RouteMessageAsync(
-                        connection.ConnectionId.Value, 
-                        new SubverseMessage([
-                            connection.ServiceId.Value, 
+                string command = Encoding.UTF8.GetString(message.Content[1..]);
+                switch (command)
+                {
+                    case "SubverseV1::Command::PING":
+                        await RouteMessageAsync(
+                            connection.ConnectionId.Value,
+                            new SubverseMessage([
+                                connection.ServiceId.Value,
                             connection.ConnectionId.Value
-                            ], _configStartTTL,
-                            Encoding.UTF8.GetBytes("SubverseV1::Command::PONG")));
-                    break;
+                                ], _configStartTTL,
+                                Encoding.UTF8.GetBytes("SubverseV1::Command::PONG")));
+                        break;
+                }
             }
         }
 
