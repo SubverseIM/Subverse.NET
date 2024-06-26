@@ -267,7 +267,7 @@ namespace Subverse.Server
             {
                 await ProcessMessageAsync(e.Message);
             }
-            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(default)) 
+            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(default))
             {
                 await Task.WhenAll(_connectionMap.Keys.Except([e.Message.Tags[0]])
                     .Select(k => Task.Run(() => RouteMessageAsync(k, e.Message)))
@@ -295,12 +295,11 @@ namespace Subverse.Server
 
         private async Task ProcessCommandMessageAsync(SubverseMessage message)
         {
-            if (_connectionMap.TryGetValue(message.Tags[0], out IEntityConnection? connection) &&
-                (connection.ConnectionId is null || connection.ServiceId is null))
-                throw new InvalidEntityException("No endpoint could be found!");
-
-            if (connection is not null)
+            if (_connectionMap.TryGetValue(message.Tags[0], out IEntityConnection? connection))
             {
+                if (connection.ConnectionId is null || connection.ServiceId is null)
+                    throw new InvalidEntityException("No endpoint could be found!");
+
                 string command = Encoding.UTF8.GetString(message.Content[1..]);
                 switch (command)
                 {
