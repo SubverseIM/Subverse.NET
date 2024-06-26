@@ -263,9 +263,16 @@ namespace Subverse.Server
 
                 await _cookieStorage.UpdateAsync(new(entityCookie.Key), entityCookie, default);
             }
-            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.ServiceId)) 
+            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.ServiceId))
             {
                 await ProcessMessageAsync(e.Message);
+            }
+            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(default)) 
+            {
+                await Task.WhenAll(_connectionMap.Keys.Except([e.Message.Tags[0]])
+                    .Select(k => Task.Run(() => RouteMessageAsync(k, e.Message)))
+                    .Append(Task.Run(() => ProcessMessageAsync(e.Message)))
+                    );
             }
             else if (e.Message.Tags.Length > 1)
             {
@@ -283,7 +290,6 @@ namespace Subverse.Server
                 case 0x00:
                     await ProcessCommandMessageAsync(message);
                     break;
-
             }
         }
 

@@ -1,5 +1,4 @@
-﻿using Alethic.Kademlia;
-using PgpCore;
+﻿using PgpCore;
 using Subverse;
 using Subverse.Implementations;
 using Subverse.Models;
@@ -77,17 +76,19 @@ try
     while (!cts.IsCancellationRequested)
     {
         var pingMsg = new SubverseMessage(
-            [hubConnection.ServiceId.Value, hubConnection.ConnectionId.Value], 
-            QuicEntityConnection.DEFAULT_CONFIG_START_TTL, 
+            [hubConnection.ServiceId.Value, default],
+            QuicEntityConnection.DEFAULT_CONFIG_START_TTL,
             Encoding.UTF8.GetBytes("\0SubverseV1::Command::PING")
             );
         await hubConnection.SendMessageAsync(pingMsg);
-        await Task.Delay(5000);
+        await Task.Delay(5000, cts.Token);
     }
+
+    hubConnection.Dispose();
 }
 catch (OperationCanceledException) { }
 
 void HubConnection_MessageReceived(object? sender, Subverse.Abstractions.MessageReceivedEventArgs e)
-{
+{    
     Console.WriteLine($"Message from [{e.Message.Tags[0]}]:\n\"{Encoding.UTF8.GetString(e.Message.Content)}\"");
 }
