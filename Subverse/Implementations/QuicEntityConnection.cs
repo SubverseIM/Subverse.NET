@@ -121,13 +121,13 @@ namespace Subverse
                 }, cancellationToken),
                 Task.Run(async Task? () =>
                 {
-                    if(ConnectionId is null)
+                    if(ConnectionId is null || ServiceId is null)
                         throw new InvalidEntityException("No endpoint could be found!");
 
                     while(!cancellationToken.IsCancellationRequested)
                     {
                         var pingMsg = new SubverseMessage(
-                            [ConnectionId.Value, default],
+                            [ConnectionId.Value, ServiceId.Value],
                             DEFAULT_CONFIG_START_TTL,
                             Encoding.UTF8.GetBytes("\0SubverseV1::Command::PING")
                             );
