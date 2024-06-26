@@ -76,7 +76,7 @@ try
     while (!cts.IsCancellationRequested)
     {
         var pingMsg = new SubverseMessage(
-            [hubConnection.ServiceId.Value, hubConnection.ConnectionId.Value],
+            [hubConnection.ServiceId.Value, default],
             QuicEntityConnection.DEFAULT_CONFIG_START_TTL,
             Encoding.UTF8.GetBytes("\0SubverseV1::Command::PING")
             );
