@@ -7,6 +7,7 @@ using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Stun;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Quic;
@@ -295,19 +296,15 @@ namespace Subverse.Server
 
         private async Task ProcessCommandMessageAsync(SubverseMessage message)
         {
-            var connection = _connectionMap[message.Tags[0]];
-            if (connection.ConnectionId is null || connection.ServiceId is null)
-                throw new InvalidEntityException("No endpoint could be found!");
-
             string command = Encoding.UTF8.GetString(message.Content[1..]);
             switch (command) 
             {
                 case "SubverseV1::Command::PING":
                     await RouteMessageAsync(
-                        connection.ConnectionId.Value, 
+                        message.Tags[0], 
                         new SubverseMessage([
-                            connection.ServiceId.Value, 
-                            connection.ConnectionId.Value
+                            message.Tags[1],
+                            message.Tags[0]
                             ], _configStartTTL,
                             Encoding.UTF8.GetBytes("SubverseV1::Command::PONG")));
                     break;
