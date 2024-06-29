@@ -3,7 +3,9 @@ using PgpCore;
 using Subverse.Abstractions;
 using Subverse.Models;
 using System.Net.Quic;
-using System.Text;
+
+using static Subverse.Models.SubverseMessage;
+using static Subverse.Implementations.QuicEntityConnection;
 
 namespace Subverse.Implementations
 {
@@ -19,8 +21,8 @@ namespace Subverse.Implementations
 
         private bool disposedValue;
 
-        public KNodeId160? ServiceId { get; private set; }
         public KNodeId160? ConnectionId { get; private set; }
+        public KNodeId160? ServiceId { get; private set; }
 
         public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string? privateKeyPassPhrase)
         {
@@ -62,7 +64,7 @@ namespace Subverse.Implementations
                 using var publicKeyStream = Utils.ExtractPGPBlockFromStream(quicStream, "PUBLIC KEY BLOCK");
                 challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
             }
-            ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
+            ServiceId = new(challengeKeys.PublicKey.GetFingerprint());
 
             byte[] blobBytes;
 
@@ -74,10 +76,10 @@ namespace Subverse.Implementations
 
                 var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
 
-                ServiceId = new(myKeys.PublicKey.GetFingerprint());
+                ConnectionId = new(myKeys.PublicKey.GetFingerprint());
                 if (self is SubverseNode node)
                 {
-                    blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, node with { MostRecentlySeenBy = new(ServiceId.Value) }).ToBlobBytes();
+                    blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, node with { MostRecentlySeenBy = new(ConnectionId.Value) }).ToBlobBytes();
                 }
                 else
                 {
@@ -107,11 +109,11 @@ namespace Subverse.Implementations
 
             _cts = new CancellationTokenSource();
             _entityConnection = new QuicEntityConnection(quicStream, _publicKeyFile, _privateKeyFile, _privateKeyPassPhrase)
-            { ServiceId = ServiceId, ConnectionId = ConnectionId };
+            { ConnectionId = ConnectionId, ServiceId = ServiceId };
             _entityReceiveTask = _entityConnection.RecieveAsync(_cts.Token);
 
             // Self-announce to other party
-            await _entityConnection.SendMessageAsync(new SubverseMessage([ServiceId.Value], QuicEntityConnection.DEFAULT_CONFIG_START_TTL, blobBytes));
+            await _entityConnection.SendMessageAsync(new SubverseMessage([ConnectionId.Value], DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, blobBytes));
         }
 
         public Task SendMessageAsync(SubverseMessage message)

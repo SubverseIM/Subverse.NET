@@ -13,6 +13,8 @@ using System.Net.Quic;
 using System.Net.Security;
 using System.Text;
 
+using static Subverse.Models.SubverseMessage;
+
 namespace Subverse.Server
 {
     internal class RoutedHubService : IHubService
@@ -81,9 +83,9 @@ namespace Subverse.Server
         {
             await newConnection.CompleteHandshakeAsync(GetSelf());
 
-            if (newConnection.ConnectionId is not null)
+            if (newConnection.ServiceId is not null)
             {
-                var connectionId = newConnection.ConnectionId.Value;
+                var connectionId = newConnection.ServiceId.Value;
 
                 // Setup connection for routing & message events
                 newConnection.MessageReceived += Connection_MessageReceived;
@@ -126,9 +128,9 @@ namespace Subverse.Server
 
         public async Task CloseConnectionAsync(IEntityConnection connection)
         {
-            if (connection.ConnectionId is not null)
+            if (connection.ServiceId is not null)
             {
-                var connectionId = connection.ConnectionId.Value;
+                var connectionId = connection.ServiceId.Value;
 
                 _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
                 storedCts?.Dispose();
@@ -253,7 +255,7 @@ namespace Subverse.Server
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
             var connection = sender as IEntityConnection;
-            if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.ConnectionId))
+            if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.ServiceId))
             {
                 var entityCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
                 if (entityCookie.Body is SubverseHub hub)
@@ -263,16 +265,9 @@ namespace Subverse.Server
 
                 await _cookieStorage.UpdateAsync(new(entityCookie.Key), entityCookie, default);
             }
-            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.ServiceId))
+            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.ConnectionId))
             {
                 await ProcessMessageAsync(e.Message);
-            }
-            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(default))
-            {
-                await Task.WhenAll(_connectionMap.Keys.Except([e.Message.Tags[0]])
-                    .Select(k => Task.Run(() => RouteMessageAsync(k, e.Message)))
-                    .Append(Task.Run(() => ProcessMessageAsync(e.Message)))
-                    );
             }
             else if (e.Message.Tags.Length > 1)
             {
@@ -284,10 +279,9 @@ namespace Subverse.Server
 
         private async Task ProcessMessageAsync(SubverseMessage message)
         {
-            switch (message.Content[0])
+            switch (message.Code)
             {
-                /* PROTO_V1_COMMAND */
-                case 0x00:
+                case ProtocolCode.Command:
                     await ProcessCommandMessageAsync(message);
                     break;
             }
@@ -297,20 +291,21 @@ namespace Subverse.Server
         {
             if (_connectionMap.TryGetValue(message.Tags[0], out IEntityConnection? connection))
             {
-                if (connection.ConnectionId is null || connection.ServiceId is null)
+                if (connection.ServiceId is null || connection.ConnectionId is null)
                     throw new InvalidEntityException("No endpoint could be found!");
 
-                string command = Encoding.UTF8.GetString(message.Content[1..]);
+                string command = Encoding.UTF8.GetString(message.Content);
                 switch (command)
                 {
-                    case "SubverseV1::Command::PING":
+                    case "PING":
                         await RouteMessageAsync(
-                            connection.ConnectionId.Value,
+                            connection.ServiceId.Value,
                             new SubverseMessage([
-                                connection.ServiceId.Value,
-                            connection.ConnectionId.Value
-                                ], _configStartTTL,
-                                Encoding.UTF8.GetBytes("SubverseV1::Command::PONG")));
+                                connection.ConnectionId.Value,
+                                connection.ServiceId.Value
+                                ], _configStartTTL, ProtocolCode.Command,
+                                Encoding.UTF8.GetBytes("PONG")
+                                ));
                         break;
                 }
             }
@@ -392,7 +387,7 @@ namespace Subverse.Server
                 }
                 else if (entityCookie?.Body is SubverseNode node)
                 {
-                    if (node.MostRecentlySeenBy.RefersTo.Equals(connection?.ServiceId))
+                    if (node.MostRecentlySeenBy.RefersTo.Equals(connection?.ConnectionId))
                     {
                         // Node was last seen by us, we'd better remember this message so we can (hopefully) eventually send it!
                         await _messageQueue.EnqueueAsync(node.MostRecentlySeenBy.RefersTo.ToString(), message);

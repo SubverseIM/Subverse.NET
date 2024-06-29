@@ -1,5 +1,4 @@
 ﻿using PgpCore;
-using Subverse;
 using Subverse.Implementations;
 using Subverse.Models;
 using System.Net;
@@ -8,9 +7,11 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using System.Text;
 
+using static Subverse.Models.SubverseMessage;
+using static Subverse.Implementations.QuicEntityConnection;
+
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
-
 void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
 {
     cts.Cancel();
@@ -33,7 +34,38 @@ using (var pgp = new PGP())
 
 Console.WriteLine("Generated Node Session Key (NSK)!");
 
-QuicHubConnection hubConnection;
+QuicHubConnection? hubConnection = null;
+
+void ProcessMessageReceived(object? sender, Subverse.Abstractions.MessageReceivedEventArgs e)
+{
+    Console.WriteLine($"Message from [{e.Message.Tags[0]}]:\n\"{Encoding.UTF8.GetString(e.Message.Content)}\"");
+    switch (e.Message.Code)
+    {
+        case ProtocolCode.Command:
+            ProcessCommandMessage(e.Message);
+            break;
+    }
+}
+
+void ProcessCommandMessage(SubverseMessage message)
+{
+    string command = Encoding.UTF8.GetString(message.Content);
+    switch (command)
+    {
+        case "PING":
+            _ = hubConnection.SendMessageAsync(
+                new SubverseMessage(
+                    [
+                        hubConnection.ConnectionId.GetValueOrDefault(),
+                        hubConnection.ServiceId.GetValueOrDefault()
+                    ],
+                    DEFAULT_CONFIG_START_TTL, ProtocolCode.Command,
+                    Encoding.UTF8.GetBytes("PONG")
+                    ));
+            break;
+    }
+}
+
 SubverseNode nodeSelf = new SubverseNode(new());
 Console.WriteLine($"Connecting to Subverse Network using DNS endpoint: {args[0]}");
 try
@@ -61,34 +93,22 @@ try
         privateKeyFile, privateKeyPassPhrase);
 
     await hubConnection.CompleteHandshakeAsync(nodeSelf);
-    if (hubConnection.ConnectionId is not null && hubConnection.ServiceId is not null)
+    if (hubConnection.ServiceId is not null && hubConnection.ConnectionId is not null)
     {
-        nodeSelf = new SubverseNode(new(hubConnection.ConnectionId.Value));
+        nodeSelf = new SubverseNode(new(hubConnection.ServiceId.Value));
     }
     else
     {
         throw new InvalidOperationException("Could not establish connection to hub service!!");
     }
 
-    Console.WriteLine($"Connected to hub successfully! Using ServiceId: {hubConnection.ServiceId}");
-    hubConnection.MessageReceived += HubConnection_MessageReceived;
+    Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
+    hubConnection.MessageReceived += ProcessMessageReceived;
 
-    while (!cts.IsCancellationRequested)
-    {
-        var pingMsg = new SubverseMessage(
-            [hubConnection.ServiceId.Value, default],
-            QuicEntityConnection.DEFAULT_CONFIG_START_TTL,
-            Encoding.UTF8.GetBytes("\0SubverseV1::Command::PING")
-            );
-        await hubConnection.SendMessageAsync(pingMsg);
-        await Task.Delay(5000, cts.Token);
-    }
-
-    hubConnection.Dispose();
+    while (!cts.IsCancellationRequested) { await Task.Delay(5000, cts.Token); }
 }
 catch (OperationCanceledException) { }
-
-void HubConnection_MessageReceived(object? sender, Subverse.Abstractions.MessageReceivedEventArgs e)
-{    
-    Console.WriteLine($"Message from [{e.Message.Tags[0]}]:\n\"{Encoding.UTF8.GetString(e.Message.Content)}\"");
+finally
+{
+    hubConnection?.Dispose();
 }
