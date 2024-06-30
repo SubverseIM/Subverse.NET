@@ -1,17 +1,17 @@
 ﻿using Alethic.Kademlia;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Bson;
+using PgpCore;
 using Subverse.Abstractions;
 using Subverse.Exceptions;
 using Subverse.Models;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Bson;
-using Org.BouncyCastle.Bcpg;
-using PgpCore;
 using System.Net.Quic;
 using System.Security.Cryptography;
-using Subverse.Implementations;
 using System.Text;
 
-namespace Subverse
+using static Subverse.Models.SubverseMessage;
+
+namespace Subverse.Implementations
 {
 #pragma warning disable CA1416 // Validate platform compatibility
     public class QuicEntityConnection : IEntityConnection
@@ -29,8 +29,8 @@ namespace Subverse
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public KNodeId160? ServiceId { get; internal set; }
         public KNodeId160? ConnectionId { get; internal set; }
+        public KNodeId160? ServiceId { get; internal set; }
 
         public QuicEntityConnection(QuicStream quicStream, FileInfo publicKeyFile, FileInfo privateKeyFile, string? privateKeyPassPhrase)
         {
@@ -54,7 +54,7 @@ namespace Subverse
 
                 var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
 
-                ServiceId = new(myKeys.PublicKey.GetFingerprint());
+                ConnectionId = new(myKeys.PublicKey.GetFingerprint());
                 blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
             }
 
@@ -65,7 +65,7 @@ namespace Subverse
                 using var publicKeyStream = Utils.ExtractPGPBlockFromStream(_quicStream, "PUBLIC KEY BLOCK");
                 challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
             }
-            ConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
+            ServiceId = new(challengeKeys.PublicKey.GetFingerprint());
 
             // Generate nonce
             byte[] originalNonce = RandomNumberGenerator.GetBytes(64);
@@ -92,41 +92,63 @@ namespace Subverse
 
             if (!originalNonce.SequenceEqual(receivedNonce))
             {
-                throw new InvalidEntityException($"Connection to entity with ID: \"{ConnectionId}\" could not be verified as authentic!");
+                throw new InvalidEntityException($"Connection to entity with ID: \"{ServiceId}\" could not be verified as authentic!");
             }
 
             _cts = new CancellationTokenSource();
             _receiveTask = RecieveAsync(_cts.Token);
 
             // Self-announce to other party
-            await SendMessageAsync(new SubverseMessage([ServiceId.Value], DEFAULT_CONFIG_START_TTL, blobBytes));
+            await SendMessageAsync(new SubverseMessage([ConnectionId.Value], DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, blobBytes));
         }
 
         internal Task RecieveAsync(CancellationToken cancellationToken)
         {
-            return Task.Run(() =>
-            {
-                using (var bsonReader = new BsonDataReader(_quicStream) { CloseInput = false, SupportMultipleContent = true })
+            return Task.WhenAll([
+                Task.Run(() =>
                 {
-                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new NodeIdConverter() } };
-                    while (!cancellationToken.IsCancellationRequested)
+                    using (var bsonReader = new BsonDataReader(_quicStream) { CloseInput = false, SupportMultipleContent = true })
                     {
-                        var message = serializer.Deserialize<SubverseMessage>(bsonReader)
-                            ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
-                        OnMessageRecieved(new MessageReceivedEventArgs(message));
-                        cancellationToken.ThrowIfCancellationRequested();
-                        bsonReader.Read();
+                        var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new NodeIdConverter() } };
+                        while (!cancellationToken.IsCancellationRequested)
+                        {
+                            var message = serializer.Deserialize<SubverseMessage>(bsonReader)
+                                ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
+                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            cancellationToken.ThrowIfCancellationRequested();
+                            bsonReader.Read();
+                        }
                     }
-                }
-            }, cancellationToken);
+                }, cancellationToken),
+
+                Task.Run(async Task? () =>
+                {
+                    if(ServiceId is null || ConnectionId is null)
+                        throw new InvalidEntityException("No endpoint could be found!");
+
+                    while(!cancellationToken.IsCancellationRequested)
+                    {
+                        var pingMsg = new SubverseMessage(
+                            [ConnectionId.Value, ServiceId.Value],
+                            DEFAULT_CONFIG_START_TTL, ProtocolCode.Command,
+                            Encoding.UTF8.GetBytes("PING")
+                            );
+                        await SendMessageAsync(pingMsg);
+                        await Task.Delay(5000, cancellationToken);
+                    }
+                })
+            ]);
         }
 
         public Task SendMessageAsync(SubverseMessage message)
         {
-            using (var bsonWriter = new BsonDataWriter(_quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
+            lock (_quicStream)
             {
-                var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new NodeIdConverter() } };
-                serializer.Serialize(bsonWriter, message);
+                using (var bsonWriter = new BsonDataWriter(_quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
+                {
+                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new NodeIdConverter() } };
+                    serializer.Serialize(bsonWriter, message);
+                }
             }
 
             return Task.CompletedTask;
