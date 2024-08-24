@@ -84,10 +84,11 @@ var callerMap = new ConcurrentDictionary<string, string>();
 
 void ProcessSipMessage(SubverseMessage message)
 {
+    SIPRequest? request = null;
     try
     {
-        var request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(message.Content));
-        callerMap.TryAdd(request.Header.CallId, request.URI.User);
+        request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(message.Content));
+        callerMap.TryAdd(request.Header.CallId, request.Header.From.FromURI.User);
     }
     catch (SIPValidationException) { }
 
@@ -162,6 +163,7 @@ try
     Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
     hubConnection.MessageReceived += ProcessMessageReceived;
     sipTransport.SIPTransportResponseReceived += SIPTransportResponseReceived;
+    sipTransport.SIPTransportRequestReceived += SipTransport_SIPTransportRequestReceived;
 
     while (!cts.IsCancellationRequested) { await Task.Delay(5000, cts.Token); }
 }
@@ -169,4 +171,9 @@ catch (OperationCanceledException) { }
 finally
 {
     hubConnection?.Dispose();
+}
+
+Task SipTransport_SIPTransportRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
+{
+    throw new NotImplementedException();
 }
