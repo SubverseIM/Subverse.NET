@@ -12,6 +12,7 @@ using static Subverse.Implementations.QuicEntityConnection;
 using SIPSorcery.SIP;
 using System.Globalization;
 using System.Collections.Concurrent;
+using Alethic.Kademlia;
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -163,7 +164,7 @@ try
     Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
     hubConnection.MessageReceived += ProcessMessageReceived;
     sipTransport.SIPTransportResponseReceived += SIPTransportResponseReceived;
-    sipTransport.SIPTransportRequestReceived += SipTransport_SIPTransportRequestReceived;
+    sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
 
     while (!cts.IsCancellationRequested) { await Task.Delay(5000, cts.Token); }
 }
@@ -173,7 +174,15 @@ finally
     hubConnection?.Dispose();
 }
 
-Task SipTransport_SIPTransportRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
+async Task SIPTransportRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
 {
-    throw new NotImplementedException();
+    await hubConnection.SendMessageAsync(
+                new SubverseMessage(
+                    [
+                        hubConnection.ConnectionId.GetValueOrDefault(),
+                        new(StringToByteArray(sipRequest.Header.To.ToURI.User))
+                    ],
+                    DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
+                    sipRequest.GetBytes()
+                    ));
 }
