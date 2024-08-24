@@ -9,6 +9,9 @@ using System.Text;
 
 using static Subverse.Models.SubverseMessage;
 using static Subverse.Implementations.QuicEntityConnection;
+using SIPSorcery.SIP;
+using System.Globalization;
+using System.Collections.Concurrent;
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -20,20 +23,28 @@ void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
 
 var publicKeyFile = new FileInfo("session_pub.asc");
 var privateKeyFile = new FileInfo("session_prv.asc");
-var privateKeyPassPhrase = RandomNumberGenerator.GetHexString(10);
+var privateKeyPassPhrase = File.Exists(".password") ?
+    File.ReadAllText(".password") :
+    RandomNumberGenerator.GetHexString(10);
 
-using (var pgp = new PGP())
+if (!File.Exists(".password"))
 {
-    await pgp.GenerateKeyAsync(
-        publicKeyFileInfo: publicKeyFile,
-        privateKeyFileInfo: privateKeyFile,
-        username: Environment.MachineName,
-        password: privateKeyPassPhrase
-        );
+    using (var pgp = new PGP())
+    {
+        await pgp.GenerateKeyAsync(
+            publicKeyFileInfo: publicKeyFile,
+            privateKeyFileInfo: privateKeyFile,
+            username: Environment.MachineName,
+            password: privateKeyPassPhrase
+            );
+    }
+    File.WriteAllText(".password", privateKeyPassPhrase);
 }
 
 Console.WriteLine("Generated Node Session Key (NSK)!");
 
+SIPTransport? sipTransport = null;
+SIPChannel? sipChannel = null;
 QuicHubConnection? hubConnection = null;
 
 void ProcessMessageReceived(object? sender, Subverse.Abstractions.MessageReceivedEventArgs e)
@@ -41,6 +52,9 @@ void ProcessMessageReceived(object? sender, Subverse.Abstractions.MessageReceive
     Console.WriteLine($"Message from [{e.Message.Tags[0]}]:\n\"{Encoding.UTF8.GetString(e.Message.Content)}\"");
     switch (e.Message.Code)
     {
+        case ProtocolCode.Application:
+            ProcessSipMessage(e.Message);
+            break;
         case ProtocolCode.Command:
             ProcessCommandMessage(e.Message);
             break;
@@ -64,6 +78,45 @@ void ProcessCommandMessage(SubverseMessage message)
                     ));
             break;
     }
+}
+
+var callerMap = new ConcurrentDictionary<string, string>();
+
+void ProcessSipMessage(SubverseMessage message)
+{
+    try
+    {
+        var request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(message.Content));
+        callerMap.TryAdd(request.Header.CallId, request.URI.User);
+    }
+    catch (SIPValidationException) { }
+
+    sipTransport.SendRawAsync(sipChannel.ListeningSIPEndPoint,
+        new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5060),
+        message.Content).Wait();
+}
+
+// Solution from: https://stackoverflow.com/a/321404
+// Adapted for increased performance
+static byte[] StringToByteArray(string hex)
+{
+    return Enumerable.Range(0, hex.Length)
+                     .Where(x => (x & 1) == 0)
+                     .Select(x => byte.Parse(hex.AsSpan().Slice(x, 2), NumberStyles.HexNumber))
+                     .ToArray();
+}
+
+async Task SIPTransportResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPResponse sipResponse)
+{
+    await hubConnection.SendMessageAsync(
+                new SubverseMessage(
+                    [
+                        hubConnection.ConnectionId.GetValueOrDefault(),
+                        new(StringToByteArray(callerMap[sipResponse.Header.CallId]))
+                    ],
+                    DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
+                    sipResponse.GetBytes()
+                    ));
 }
 
 SubverseNode nodeSelf = new SubverseNode(new());
@@ -102,8 +155,13 @@ try
         throw new InvalidOperationException("Could not establish connection to hub service!!");
     }
 
+    sipChannel = new SIPUDPChannel(IPAddress.Any, 0);
+    sipTransport = new SIPTransport(true);
+    sipTransport.AddSIPChannel(sipChannel);
+
     Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
     hubConnection.MessageReceived += ProcessMessageReceived;
+    sipTransport.SIPTransportResponseReceived += SIPTransportResponseReceived;
 
     while (!cts.IsCancellationRequested) { await Task.Delay(5000, cts.Token); }
 }

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
 	<PropertyGroup>
-		<TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
+		<TargetFrameworks>net9.0;net9.0-windows</TargetFrameworks>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<EnablePreviewFeatures>true</EnablePreviewFeatures>
@@ -15,6 +15,7 @@
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Native.Quic.MsQuic.OpenSSL" Version="2.3.5" />
+		<PackageReference Include="SIPSorcery" Version="6.2.4" />
 	</ItemGroup>
 
 	<ItemGroup>

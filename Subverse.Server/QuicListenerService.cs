@@ -117,6 +117,7 @@ namespace Subverse.Server
 
                 await Task.WhenAll(listenTasks);
                 await _listener.DisposeAsync();
+                _hubService.Shutdown();
             }
         }
     }

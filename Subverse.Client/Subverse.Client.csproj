@@ -2,11 +2,15 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
-		<TargetFramework>net8.0</TargetFramework>
+		<TargetFramework>net9.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<EnablePreviewFeatures>true</EnablePreviewFeatures>
 	</PropertyGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="SIPSorcery" Version="6.2.4" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Subverse\Subverse.csproj" />

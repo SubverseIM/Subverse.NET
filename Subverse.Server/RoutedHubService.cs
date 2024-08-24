@@ -1,5 +1,7 @@
 ﻿using Alethic.Kademlia;
 using Hangfire;
+using PgpCore;
+using SIPSorcery.SIP;
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
 using Subverse.Exceptions;
@@ -21,7 +23,9 @@ namespace Subverse.Server
     {
         private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
         private const int DEFAULT_CONFIG_START_TTL = 99;
+        private const int DEFAULT_CONFIG_SIP_PORT = 50600;
 
+        private readonly SIPTransport _sipTransport;
         private readonly IConfiguration _configuration;
         private readonly ILogger<RoutedHubService> _logger;
         private readonly IKHost<KNodeId160> _kHost;
@@ -30,8 +34,11 @@ namespace Subverse.Server
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IStunUriProvider _stunUriProvider;
 
+        private readonly KNodeId160 _connectionId;
+
         private readonly string _configHostname;
         private readonly int _configStartTTL;
+        private readonly int _configSipPort;
 
         private readonly ConcurrentDictionary<KNodeId160, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId160, CancellationTokenSource> _ctsMap;
@@ -55,10 +62,14 @@ namespace Subverse.Server
             _configuration = configuration;
 
             _configHostname = _configuration.GetSection("HubService")?
-                .GetValue<string>("Hostname") ?? DEFAULT_CONFIG_HOSTNAME;
+                .GetValue<string?>("Hostname") ?? DEFAULT_CONFIG_HOSTNAME;
 
             _configStartTTL = _configuration.GetSection("HubService")?
-                .GetValue<int>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
+                .GetValue<int?>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
+
+            _configSipPort = _configuration.GetSection("HubService")?
+                .GetValue<int?>("SipPort") ?? DEFAULT_CONFIG_SIP_PORT;
+
             QuicEntityConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _logger = logger;
@@ -67,6 +78,13 @@ namespace Subverse.Server
             _messageQueue = messageQueue;
             _keyProvider = keyProvider;
             _stunUriProvider = stunUriProvider;
+
+            var publicKeyContainer = new EncryptionKeys(_keyProvider.GetPublicKeyFile());
+            _connectionId = new(publicKeyContainer.PublicKey.GetFingerprint());
+
+            _sipTransport = new SIPTransport();
+            _sipTransport.AddSIPChannel(new SIPUDPChannel(IPAddress.Any, _configSipPort));
+            _sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
 
             _taskMap = new ConcurrentDictionary<KNodeId160, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId160, CancellationTokenSource>();
@@ -77,6 +95,19 @@ namespace Subverse.Server
                 "Subverse.Server.RoutedHubService.FlushMessagesAsync",
                 () => FlushMessagesAsync(CancellationToken.None),
                 Cron.Minutely);
+        }
+
+        private async Task SIPTransportRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
+        {
+            KNodeId160 recipientId = new(StringToByteArray(sipRequest.URI.User));
+            await RouteMessageAsync(recipientId, new SubverseMessage(
+                [_connectionId, recipientId], _configStartTTL, 
+                ProtocolCode.Application, sipRequest.GetBytes()));
+        }
+
+        public void Shutdown()
+        {
+            _sipTransport.Shutdown();
         }
 
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
