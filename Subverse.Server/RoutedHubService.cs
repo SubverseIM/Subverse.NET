@@ -82,7 +82,7 @@ namespace Subverse.Server
             var publicKeyContainer = new EncryptionKeys(_keyProvider.GetPublicKeyFile());
             _connectionId = new(publicKeyContainer.PublicKey.GetFingerprint());
 
-            _sipTransport = new SIPTransport();
+            _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
             _sipTransport.AddSIPChannel(new SIPUDPChannel(IPAddress.Any, _configSipPort));
             _sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
 

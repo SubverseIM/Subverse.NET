@@ -180,7 +180,7 @@ internal class ClientHostedService : BackgroundService
             }
 
             sipChannel = new SIPUDPChannel(IPAddress.Any, 0);
-            sipTransport = new SIPTransport(true);
+            sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
             sipTransport.AddSIPChannel(sipChannel);
 
             Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
