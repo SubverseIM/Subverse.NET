@@ -367,3 +367,4 @@ FodyWeavers.xsd
 /Subverse.Server/Properties/launchSettings.json
 /Subverse.Client/session_prv.asc
 /Subverse.Client/session_pub.asc
+*.password

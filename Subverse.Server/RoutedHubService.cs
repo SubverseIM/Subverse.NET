@@ -1,5 +1,7 @@
 ﻿using Alethic.Kademlia;
 using Hangfire;
+using PgpCore;
+using SIPSorcery.SIP;
 using Subverse.Abstractions;
 using Subverse.Abstractions.Server;
 using Subverse.Exceptions;
@@ -21,7 +23,9 @@ namespace Subverse.Server
     {
         private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
         private const int DEFAULT_CONFIG_START_TTL = 99;
+        private const int DEFAULT_CONFIG_SIP_PORT = 50600;
 
+        private readonly SIPTransport _sipTransport;
         private readonly IConfiguration _configuration;
         private readonly ILogger<RoutedHubService> _logger;
         private readonly IKHost<KNodeId160> _kHost;
@@ -30,12 +34,15 @@ namespace Subverse.Server
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IStunUriProvider _stunUriProvider;
 
+        private readonly KNodeId160 _connectionId;
+
         private readonly string _configHostname;
         private readonly int _configStartTTL;
+        private readonly int _configSipPort;
 
         private readonly ConcurrentDictionary<KNodeId160, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId160, CancellationTokenSource> _ctsMap;
-        private readonly ConcurrentDictionary<KNodeId160, IEntityConnection> _connectionMap;
+        private readonly ConcurrentDictionary<KNodeId160, HashSet<IEntityConnection>> _connectionMap;
 
         private IPEndPoint? _localEndPoint;
         private SubverseHub? _cachedSelf;
@@ -55,10 +62,14 @@ namespace Subverse.Server
             _configuration = configuration;
 
             _configHostname = _configuration.GetSection("HubService")?
-                .GetValue<string>("Hostname") ?? DEFAULT_CONFIG_HOSTNAME;
+                .GetValue<string?>("Hostname") ?? DEFAULT_CONFIG_HOSTNAME;
 
             _configStartTTL = _configuration.GetSection("HubService")?
-                .GetValue<int>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
+                .GetValue<int?>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
+
+            _configSipPort = _configuration.GetSection("HubService")?
+                .GetValue<int?>("SipPort") ?? DEFAULT_CONFIG_SIP_PORT;
+
             QuicEntityConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _logger = logger;
@@ -68,15 +79,35 @@ namespace Subverse.Server
             _keyProvider = keyProvider;
             _stunUriProvider = stunUriProvider;
 
+            var publicKeyContainer = new EncryptionKeys(_keyProvider.GetPublicKeyFile());
+            _connectionId = new(publicKeyContainer.PublicKey.GetFingerprint());
+
+            _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
+            _sipTransport.AddSIPChannel(new SIPUDPChannel(IPAddress.Any, _configSipPort));
+            _sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
+
             _taskMap = new ConcurrentDictionary<KNodeId160, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId160, CancellationTokenSource>();
-            _connectionMap = new ConcurrentDictionary<KNodeId160, IEntityConnection>();
+            _connectionMap = new ConcurrentDictionary<KNodeId160, HashSet<IEntityConnection>>();
 
             // Schedule queue flushing job
             RecurringJob.AddOrUpdate(
                 "Subverse.Server.RoutedHubService.FlushMessagesAsync",
                 () => FlushMessagesAsync(CancellationToken.None),
                 Cron.Minutely);
+        }
+
+        private async Task SIPTransportRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
+        {
+            KNodeId160 recipientId = new(StringToByteArray(sipRequest.URI.User));
+            await RouteMessageAsync(recipientId, new SubverseMessage(
+                [_connectionId, recipientId], _configStartTTL,
+                ProtocolCode.Application, sipRequest.GetBytes()));
+        }
+
+        public void Shutdown()
+        {
+            _sipTransport.Shutdown();
         }
 
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
@@ -89,17 +120,22 @@ namespace Subverse.Server
 
                 // Setup connection for routing & message events
                 newConnection.MessageReceived += Connection_MessageReceived;
-                _ = _connectionMap.AddOrUpdate(connectionId, newConnection,
-                    (key, oldConnection) =>
+
+                HashSet<IEntityConnection> newConnections = [newConnection];
+                _connectionMap.AddOrUpdate(connectionId, newConnections,
+                    (key, existingConnections) =>
                     {
-                        oldConnection.Dispose();
-                        return newConnection;
+                        lock (existingConnections)
+                        {
+                            existingConnections.UnionWith(newConnections);
+                            return existingConnections;
+                        }
                     });
 
 
                 // Immediately send all messages we've cached for this particular entity (in the background)
                 var newCts = new CancellationTokenSource();
-                _ = _ctsMap.AddOrUpdate(connectionId, newCts,
+                _ctsMap.AddOrUpdate(connectionId, newCts,
                     (key, oldCts) =>
                     {
                         oldCts.Dispose();
@@ -146,8 +182,21 @@ namespace Subverse.Server
                     _logger.LogError(ex, null);
                 }
 
-                _connectionMap.Remove(connectionId, out IEntityConnection? storedConnection);
-                storedConnection?.Dispose();
+                if (_connectionMap.TryRemove(connectionId, out HashSet<IEntityConnection>? storedConnections))
+                {
+                    storedConnections.Remove(connection);
+                    _connectionMap.AddOrUpdate(connectionId, storedConnections,
+                    (key, existingConnections) =>
+                    {
+                        lock (existingConnections)
+                        {
+                            existingConnections.UnionWith(storedConnections);
+                            return existingConnections;
+                        }
+                    });
+                }
+
+                connection.Dispose();
             }
         }
 
@@ -289,9 +338,10 @@ namespace Subverse.Server
 
         private async Task ProcessCommandMessageAsync(SubverseMessage message)
         {
-            if (_connectionMap.TryGetValue(message.Tags[0], out IEntityConnection? connection))
+            if (_connectionMap.TryGetValue(message.Tags[0], out HashSet<IEntityConnection>? connections))
             {
-                if (connection.ServiceId is null || connection.ConnectionId is null)
+                var connection = connections.FirstOrDefault();
+                if (connection?.ServiceId is null || connection?.ConnectionId is null)
                     throw new InvalidEntityException("No endpoint could be found!");
 
                 string command = Encoding.UTF8.GetString(message.Content);
@@ -317,10 +367,10 @@ namespace Subverse.Server
             {
                 await RouteMessageAsync(recipient, message with { TimeToLive = _configStartTTL });
             }
-            else if (_connectionMap.TryGetValue(recipient, out IEntityConnection? connection))
+            else if (_connectionMap.TryGetValue(recipient, out HashSet<IEntityConnection>? connections))
             {
                 // Forward the message via direct route, since they are already connected to us.
-                await (connection?.SendMessageAsync(message) ?? Task.CompletedTask);
+                await Task.WhenAll(connections.Select(x => x.SendMessageAsync(message)));
             }
             else
             {
@@ -387,7 +437,7 @@ namespace Subverse.Server
                 }
                 else if (entityCookie?.Body is SubverseNode node)
                 {
-                    if (node.MostRecentlySeenBy.RefersTo.Equals(connection?.ConnectionId))
+                    if (node.MostRecentlySeenBy.RefersTo.Equals(_connectionId))
                     {
                         // Node was last seen by us, we'd better remember this message so we can (hopefully) eventually send it!
                         await _messageQueue.EnqueueAsync(node.MostRecentlySeenBy.RefersTo.ToString(), message);
