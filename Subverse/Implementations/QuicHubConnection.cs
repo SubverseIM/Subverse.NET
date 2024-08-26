@@ -17,12 +17,13 @@ namespace Subverse.Implementations
 
         private QuicEntityConnection? _entityConnection;
         private CancellationTokenSource? _cts;
-        private Task? _entityReceiveTask;
 
         private bool disposedValue;
 
         public KNodeId160? ConnectionId { get; private set; }
         public KNodeId160? ServiceId { get; private set; }
+
+        public Task? EntityReceiveTask { get; private set; }
 
         public QuicHubConnection(QuicConnection quicConnection, FileInfo publicKeyFile, FileInfo privateKeyFile, string? privateKeyPassPhrase)
         {
@@ -110,7 +111,7 @@ namespace Subverse.Implementations
             _cts = new CancellationTokenSource();
             _entityConnection = new QuicEntityConnection(quicStream, _publicKeyFile, _privateKeyFile, _privateKeyPassPhrase)
             { ConnectionId = ConnectionId, ServiceId = ServiceId };
-            _entityReceiveTask = _entityConnection.RecieveAsync(_cts.Token);
+            EntityReceiveTask = _entityConnection.RecieveAsync(_cts.Token);
 
             // Self-announce to other party
             await _entityConnection.SendMessageAsync(new SubverseMessage([ConnectionId.Value], DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, blobBytes));
@@ -130,7 +131,7 @@ namespace Subverse.Implementations
                     try
                     {
                         _cts?.Dispose();
-                        _entityReceiveTask?.Wait();
+                        EntityReceiveTask?.Wait();
                     }
                     finally
                     {

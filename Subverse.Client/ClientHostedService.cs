@@ -145,57 +145,60 @@ internal class ClientHostedService : BackgroundService
         var hostname = _configuration.GetSection("Client").GetValue<string>("Hostname");
         SubverseNode nodeSelf = new SubverseNode(new());
         Console.WriteLine($"Connecting to Subverse Network using DNS endpoint: {hostname}");
-        try
+        do
         {
+            try
+            {
 #pragma warning disable CA1416 // Validate platform compatibility
-            var quicConnection = await QuicConnection.ConnectAsync(
-                new QuicClientConnectionOptions
-                {
-                    RemoteEndPoint = new DnsEndPoint(hostname, 30603),
-
-                    DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
-                    DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
-
-                    ClientAuthenticationOptions = new()
+                var quicConnection = await QuicConnection.ConnectAsync(
+                    new QuicClientConnectionOptions
                     {
-                        ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
-                        TargetHost = hostname,
-                    },
+                        RemoteEndPoint = new DnsEndPoint(hostname, 30603),
 
-                    MaxInboundBidirectionalStreams = 10,
-                }, stoppingToken);
+                        DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
+                        DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
+
+                        ClientAuthenticationOptions = new()
+                        {
+                            ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
+                            TargetHost = hostname,
+                        },
+
+                        MaxInboundBidirectionalStreams = 10,
+                    }, stoppingToken);
 #pragma warning restore CA1416 // Validate platform compatibility
 
-            hubConnection = new QuicHubConnection(quicConnection, publicKeyFile,
-                privateKeyFile, privateKeyPassPhrase);
+                hubConnection = new QuicHubConnection(quicConnection, publicKeyFile,
+                    privateKeyFile, privateKeyPassPhrase);
 
-            await hubConnection.CompleteHandshakeAsync(nodeSelf);
-            if (hubConnection.ServiceId is not null && hubConnection.ConnectionId is not null)
-            {
-                nodeSelf = new SubverseNode(new(hubConnection.ServiceId.Value));
+                await hubConnection.CompleteHandshakeAsync(nodeSelf);
+                if (hubConnection.ServiceId is not null && hubConnection.ConnectionId is not null)
+                {
+                    nodeSelf = new SubverseNode(new(hubConnection.ServiceId.Value));
+                }
+                else
+                {
+                    throw new InvalidOperationException("Could not establish connection to hub service!!");
+                }
+
+                sipChannel = new SIPUDPChannel(IPAddress.Any, 0);
+                sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
+                sipTransport.AddSIPChannel(sipChannel);
+
+                Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
+                hubConnection.MessageReceived += ProcessMessageReceived;
+                sipTransport.SIPTransportResponseReceived += SIPTransportResponseReceived;
+                sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
+
+                await (hubConnection.EntityReceiveTask?.WaitAsync(stoppingToken) ?? Task.CompletedTask);
             }
-            else
+            catch (OperationCanceledException) { break; }
+            catch (Exception) { }
+            finally
             {
-                throw new InvalidOperationException("Could not establish connection to hub service!!");
+                hubConnection?.Dispose();
+                sipTransport?.Shutdown();
             }
-
-            sipChannel = new SIPUDPChannel(IPAddress.Any, 0);
-            sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
-            sipTransport.AddSIPChannel(sipChannel);
-
-            Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
-            hubConnection.MessageReceived += ProcessMessageReceived;
-            sipTransport.SIPTransportResponseReceived += SIPTransportResponseReceived;
-            sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
-
-            while (!stoppingToken.IsCancellationRequested) { await Task.Delay(5000, stoppingToken); }
-            stoppingToken.ThrowIfCancellationRequested();
-        }
-        catch (OperationCanceledException) { }
-        finally
-        {
-            hubConnection?.Dispose();
-            sipTransport?.Shutdown();
-        }
+        } while (!stoppingToken.IsCancellationRequested);
     }
 }
