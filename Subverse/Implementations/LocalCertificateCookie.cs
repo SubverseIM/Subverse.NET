@@ -9,13 +9,11 @@ namespace Subverse.Implementations
     public class LocalCertificateCookie : CertificateCookie
     {
         private readonly Stream publicKeyStream;
-        private readonly EncryptionKeys privateKeyContainer;
 
-        public LocalCertificateCookie(Stream publicKeyStream, EncryptionKeys privateKeyContainer, SubverseEntity cookieBody) :
-            base(new(privateKeyContainer.PublicKey.GetFingerprint()), cookieBody)
+        public LocalCertificateCookie(Stream publicKeyStream, EncryptionKeys keyContainer, SubverseEntity cookieBody) :
+            base(keyContainer, cookieBody)
         {
             this.publicKeyStream = publicKeyStream;
-            this.privateKeyContainer = privateKeyContainer;
         }
 
         public override byte[] ToBlobBytes()
@@ -32,7 +30,7 @@ namespace Subverse.Implementations
             byte[] cookieBodyUtf8Bytes = Encoding.UTF8.GetBytes(cookieBodyJsonString);
             using (var inputStreamBody = new MemoryStream(cookieBodyUtf8Bytes))
             using (var outputStream = new MemoryStream())
-            using (var pgp = new PGP(privateKeyContainer))
+            using (var pgp = new PGP(KeyContainer))
             {
                 pgp.SignStream(inputStreamBody, outputStream);
                 cookieBytesFull.AddRange(outputStream.ToArray());

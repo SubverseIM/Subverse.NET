@@ -142,7 +142,7 @@ internal class ClientHostedService : BackgroundService
                             ));
         }
 
-        var hostname = _configuration.GetSection("Client").GetValue<string>("Hostname");
+        var hostname = _configuration.GetSection("Client").GetValue<string>("Hostname") ?? "localhost";
         SubverseNode nodeSelf = new SubverseNode(new());
         Console.WriteLine($"Connecting to Subverse Network using DNS endpoint: {hostname}");
         do
@@ -181,7 +181,7 @@ internal class ClientHostedService : BackgroundService
                     throw new InvalidOperationException("Could not establish connection to hub service!!");
                 }
 
-                sipChannel = new SIPUDPChannel(IPAddress.Any, 0);
+                sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5059);
                 sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
                 sipTransport.AddSIPChannel(sipChannel);
 
