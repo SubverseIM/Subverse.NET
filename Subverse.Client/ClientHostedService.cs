@@ -55,6 +55,8 @@ internal class ClientHostedService : BackgroundService
 
         SIPTransport? sipTransport = null;
         SIPChannel? sipChannel = null;
+
+        SubverseNode nodeSelf = new SubverseNode(new());
         QuicHubConnection? hubConnection = null;
 
         EncryptionKeys myEntityKeys = new EncryptionKeys(privateKeyFile, privateKeyPassPhrase);
@@ -72,8 +74,25 @@ internal class ClientHostedService : BackgroundService
                     await ProcessCommandMessageAsync(e.Message);
                     break;
                 case ProtocolCode.Entity:
-                    var cookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
-                    entityKeysSources[cookie.Key].TrySetResult(cookie.KeyContainer);
+
+                    CertificateCookie theirCookie;
+                    TaskCompletionSource<EncryptionKeys>? entityKeysSource;
+
+                    if (!entityKeysSources.TryGetValue(e.Message.Tags[0], out entityKeysSource))
+                    {
+                        entityKeysSource = new TaskCompletionSource<EncryptionKeys>();
+                        entityKeysSources.TryAdd(e.Message.Tags[0], entityKeysSource);
+                    }
+
+                    theirCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
+                    entityKeysSource.TrySetResult(theirCookie.KeyContainer);
+
+                    LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
+                    await hubConnection.SendMessageAsync(new SubverseMessage(
+                            [hubConnection.ConnectionId.GetValueOrDefault(), e.Message.Tags[0]],
+                            DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
+                            ));
+
                     break;
             }
         }
@@ -88,7 +107,7 @@ internal class ClientHostedService : BackgroundService
                         new SubverseMessage(
                             [
                                 hubConnection.ConnectionId.GetValueOrDefault(),
-                        hubConnection.ServiceId.GetValueOrDefault()
+                                hubConnection.ServiceId.GetValueOrDefault()
                             ],
                             DEFAULT_CONFIG_START_TTL, ProtocolCode.Command,
                             Encoding.UTF8.GetBytes("PONG")
@@ -101,27 +120,29 @@ internal class ClientHostedService : BackgroundService
 
         async Task ProcessSipMessageAsync(SubverseMessage message)
         {
-            SIPRequest? request = null;
-            try
-            {
-                request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(message.Content));
-                string fromEntityStr = request.Header.From.FromURI.User;
-                callerMap.TryAdd(request.Header.CallId, fromEntityStr);
-            }
-            catch (SIPValidationException) { }
-
+            byte[] messageBytes;
             using (var pgp = new PGP(myEntityKeys))
             using (var bufferStream = new MemoryStream(message.Content))
             using (var decryptStream = new MemoryStream())
             {
                 await pgp.DecryptAsync(bufferStream, decryptStream);
-
-                await sipTransport.SendRawAsync(
-                    sipChannel.ListeningSIPEndPoint,
-                    new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5060),
-                    decryptStream.ToArray()
-                    );
+                messageBytes = decryptStream.ToArray();
             }
+
+            SIPRequest? request = null;
+            try
+            {
+                request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(messageBytes));
+                string fromEntityStr = request.Header.From.FromURI.User;
+                callerMap.TryAdd(request.Header.CallId, fromEntityStr);
+            }
+            catch (SIPValidationException) { }
+
+            await sipTransport.SendRawAsync(
+                sipChannel.ListeningSIPEndPoint,
+                new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5060),
+                messageBytes
+                );
         }
 
         // Solution from: https://stackoverflow.com/a/321404
@@ -143,12 +164,13 @@ internal class ClientHostedService : BackgroundService
 
             if (!entityKeysSources.TryGetValue(toEntityId, out toEntityKeysSource))
             {
+                LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
                 await hubConnection.SendMessageAsync(new SubverseMessage(
-                        [ toEntityId, hubConnection.ServiceId.GetValueOrDefault() ],
-                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, []
+                        [hubConnection.ConnectionId.GetValueOrDefault(), toEntityId],
+                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
                         ));
 
-                toEntityKeysSource = entityKeysSources.GetOrAdd(toEntityId, 
+                toEntityKeysSource = entityKeysSources.GetOrAdd(toEntityId,
                     new TaskCompletionSource<EncryptionKeys>());
             }
 
@@ -162,7 +184,7 @@ internal class ClientHostedService : BackgroundService
                 await hubConnection.SendMessageAsync(
                     new SubverseMessage(
                         [hubConnection.ConnectionId.GetValueOrDefault(), toEntityId],
-                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Application, 
+                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
                         encryptStream.ToArray()
                         ));
             }
@@ -177,12 +199,13 @@ internal class ClientHostedService : BackgroundService
 
             if (!entityKeysSources.TryGetValue(toEntityId, out toEntityKeysSource))
             {
+                LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
                 await hubConnection.SendMessageAsync(new SubverseMessage(
-                        [ toEntityId, hubConnection.ServiceId.GetValueOrDefault() ],
-                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, []
+                        [hubConnection.ConnectionId.GetValueOrDefault(), toEntityId],
+                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
                         ));
 
-                toEntityKeysSource = entityKeysSources.GetOrAdd(toEntityId, 
+                toEntityKeysSource = entityKeysSources.GetOrAdd(toEntityId,
                     new TaskCompletionSource<EncryptionKeys>());
             }
 
@@ -203,7 +226,6 @@ internal class ClientHostedService : BackgroundService
         }
 
         var hostname = _configuration.GetSection("Client").GetValue<string>("Hostname") ?? "localhost";
-        SubverseNode nodeSelf = new SubverseNode(new());
         Console.WriteLine($"Connecting to Subverse Network using DNS endpoint: {hostname}");
         do
         {

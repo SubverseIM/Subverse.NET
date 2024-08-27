@@ -314,23 +314,7 @@ namespace Subverse.Server
                 case ProtocolCode.Command:
                     await ProcessCommandMessageAsync(connection, message);
                     break;
-                case ProtocolCode.Entity:
-                    await ProcessEntityMessageAsync(connection, message);
-                    break;
             }
-        }
-
-        private async Task ProcessEntityMessageAsync(IEntityConnection connection, SubverseMessage message)
-        {
-            if (connection.ServiceId is null || connection.ConnectionId is null)
-                throw new InvalidEntityException("No endpoint could be found!");
-
-            var cookie = await _cookieStorage.ReadAsync<CertificateCookie>(new(message.Tags[0]), default);
-
-            await connection.SendMessageAsync(new SubverseMessage(
-                [connection.ConnectionId.Value, connection.ServiceId.Value],
-                _configStartTTL, ProtocolCode.Entity, cookie?.ToBlobBytes() ?? []
-            ));
         }
 
         private async Task ProcessCommandMessageAsync(IEntityConnection connection, SubverseMessage message)
