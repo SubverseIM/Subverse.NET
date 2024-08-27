@@ -263,7 +263,7 @@ internal class ClientHostedService : BackgroundService
                     throw new InvalidOperationException("Could not establish connection to hub service!!");
                 }
 
-                sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5059);
+                sipChannel = new SIPUDPChannel(IPAddress.Any, 5059);
                 sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
                 sipTransport.AddSIPChannel(sipChannel);
 
