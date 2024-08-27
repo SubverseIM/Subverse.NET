@@ -74,7 +74,6 @@ internal class ClientHostedService : BackgroundService
                     await ProcessCommandMessageAsync(e.Message);
                     break;
                 case ProtocolCode.Entity:
-
                     CertificateCookie theirCookie;
                     TaskCompletionSource<EncryptionKeys>? entityKeysSource;
 
@@ -86,6 +85,8 @@ internal class ClientHostedService : BackgroundService
 
                     theirCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
                     entityKeysSource.TrySetResult(theirCookie.KeyContainer);
+
+                    if (e.Message.Tags[0].Equals(hubConnection.ConnectionId)) break;
 
                     LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
                     await hubConnection.SendMessageAsync(new SubverseMessage(
