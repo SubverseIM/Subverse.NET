@@ -10,7 +10,5 @@ namespace Subverse.Abstractions.Server
 
         SubverseHub GetSelf();
         void SetLocalEndPoint(IPEndPoint localEndPoint);
-
-        void Shutdown();
     }
 }

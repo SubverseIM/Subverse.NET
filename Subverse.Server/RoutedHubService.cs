@@ -87,10 +87,6 @@ namespace Subverse.Server
                 Cron.Minutely);
         }
 
-        public void Shutdown()
-        {
-        }
-
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
         {
             await newConnection.CompleteHandshakeAsync(GetSelf());
