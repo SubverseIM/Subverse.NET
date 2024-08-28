@@ -91,9 +91,7 @@ internal class ClientHostedService : BackgroundService
             }
 
             theirCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(message.Content);
-            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
-
-            if (message.Tags[0].Equals(hubConnection.LocalConnectionId)) return;
+            if (!entityKeysSource.TrySetResult(theirCookie.KeyContainer)) { return; }
 
             LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
             await hubConnection.SendMessageAsync(new SubverseMessage(
