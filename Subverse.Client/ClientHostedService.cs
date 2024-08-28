@@ -208,7 +208,7 @@ internal class ClientHostedService : BackgroundService
 
         async Task SIPTransportResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPResponse sipResponse)
         {
-            if(!callerMap.TryRemove(
+            if(!callerMap.TryGetValue(
                 sipResponse.Header.CallId, 
                 out string? fromEntityStr)) 
             {
