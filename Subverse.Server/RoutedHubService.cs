@@ -23,9 +23,7 @@ namespace Subverse.Server
     {
         private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
         private const int DEFAULT_CONFIG_START_TTL = 99;
-        private const int DEFAULT_CONFIG_SIP_PORT = 50600;
 
-        private readonly SIPTransport _sipTransport;
         private readonly IConfiguration _configuration;
         private readonly ILogger<RoutedHubService> _logger;
         private readonly IKHost<KNodeId160> _kHost;
@@ -38,7 +36,6 @@ namespace Subverse.Server
 
         private readonly string _configHostname;
         private readonly int _configStartTTL;
-        private readonly int _configSipPort;
 
         private readonly ConcurrentDictionary<KNodeId160, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId160, CancellationTokenSource> _ctsMap;
@@ -67,9 +64,6 @@ namespace Subverse.Server
             _configStartTTL = _configuration.GetSection("HubService")?
                 .GetValue<int?>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
 
-            _configSipPort = _configuration.GetSection("HubService")?
-                .GetValue<int?>("SipPort") ?? DEFAULT_CONFIG_SIP_PORT;
-
             QuicEntityConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _logger = logger;
@@ -82,10 +76,6 @@ namespace Subverse.Server
             var publicKeyContainer = new EncryptionKeys(_keyProvider.GetPublicKeyFile());
             _connectionId = new(publicKeyContainer.PublicKey.GetFingerprint());
 
-            _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
-            _sipTransport.AddSIPChannel(new SIPUDPChannel(IPAddress.Any, _configSipPort));
-            _sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
-
             _taskMap = new ConcurrentDictionary<KNodeId160, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId160, CancellationTokenSource>();
             _connectionMap = new ConcurrentDictionary<KNodeId160, HashSet<IEntityConnection>>();
@@ -97,26 +87,13 @@ namespace Subverse.Server
                 Cron.Minutely);
         }
 
-        private async Task SIPTransportRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
-        {
-            KNodeId160 recipientId = new(StringToByteArray(sipRequest.URI.User));
-            await RouteMessageAsync(recipientId, new SubverseMessage(
-                [_connectionId, recipientId], _configStartTTL,
-                ProtocolCode.Application, sipRequest.GetBytes()));
-        }
-
-        public void Shutdown()
-        {
-            _sipTransport.Shutdown();
-        }
-
         public async Task OpenConnectionAsync(IEntityConnection newConnection)
         {
             await newConnection.CompleteHandshakeAsync(GetSelf());
 
-            if (newConnection.ServiceId is not null)
+            if (newConnection.RemoteConnectionId is not null)
             {
-                var connectionId = newConnection.ServiceId.Value;
+                var connectionId = newConnection.RemoteConnectionId.Value;
 
                 // Setup connection for routing & message events
                 newConnection.MessageReceived += Connection_MessageReceived;
@@ -164,9 +141,9 @@ namespace Subverse.Server
 
         public async Task CloseConnectionAsync(IEntityConnection connection)
         {
-            if (connection.ServiceId is not null)
+            if (connection.RemoteConnectionId is not null)
             {
-                var connectionId = connection.ServiceId.Value;
+                var connectionId = connection.RemoteConnectionId.Value;
 
                 _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
                 storedCts?.Dispose();
@@ -304,7 +281,7 @@ namespace Subverse.Server
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
             var connection = sender as IEntityConnection;
-            if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.ServiceId))
+            if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.RemoteConnectionId))
             {
                 var entityCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
                 if (entityCookie.Body is SubverseHub hub)
@@ -314,9 +291,9 @@ namespace Subverse.Server
 
                 await _cookieStorage.UpdateAsync(new(entityCookie.Key), entityCookie, default);
             }
-            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.ConnectionId))
+            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.LocalConnectionId))
             {
-                await ProcessMessageAsync(e.Message);
+                await ProcessMessageAsync(connection, e.Message);
             }
             else if (e.Message.Tags.Length > 1)
             {
@@ -326,38 +303,33 @@ namespace Subverse.Server
             }
         }
 
-        private async Task ProcessMessageAsync(SubverseMessage message)
+        private async Task ProcessMessageAsync(IEntityConnection connection, SubverseMessage message)
         {
             switch (message.Code)
             {
                 case ProtocolCode.Command:
-                    await ProcessCommandMessageAsync(message);
+                    await ProcessCommandMessageAsync(connection, message);
                     break;
             }
         }
 
-        private async Task ProcessCommandMessageAsync(SubverseMessage message)
+        private async Task ProcessCommandMessageAsync(IEntityConnection connection, SubverseMessage message)
         {
-            if (_connectionMap.TryGetValue(message.Tags[0], out HashSet<IEntityConnection>? connections))
-            {
-                var connection = connections.FirstOrDefault();
-                if (connection?.ServiceId is null || connection?.ConnectionId is null)
-                    throw new InvalidEntityException("No endpoint could be found!");
+            if (connection.RemoteConnectionId is null || connection.LocalConnectionId is null)
+                throw new InvalidEntityException("No endpoint could be found!");
 
-                string command = Encoding.UTF8.GetString(message.Content);
-                switch (command)
-                {
-                    case "PING":
-                        await RouteMessageAsync(
-                            connection.ServiceId.Value,
-                            new SubverseMessage([
-                                connection.ConnectionId.Value,
-                                connection.ServiceId.Value
-                                ], _configStartTTL, ProtocolCode.Command,
-                                Encoding.UTF8.GetBytes("PONG")
-                                ));
-                        break;
-                }
+            string command = Encoding.UTF8.GetString(message.Content);
+            switch (command)
+            {
+                case "PING":
+                    await connection.SendMessageAsync(
+                        new SubverseMessage([
+                                connection.LocalConnectionId.Value,
+                                connection.RemoteConnectionId.Value
+                            ], _configStartTTL, ProtocolCode.Command,
+                            Encoding.UTF8.GetBytes("PONG")
+                            ));
+                    break;
             }
         }
 

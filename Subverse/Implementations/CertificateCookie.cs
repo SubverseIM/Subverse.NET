@@ -12,24 +12,25 @@ namespace Subverse.Implementations
     {
         private readonly byte[]? blobBytes;
 
-        public KNodeId160 Key { get; }
+        public EncryptionKeys KeyContainer { get; }
+
+        public KNodeId160 Key => new(KeyContainer.PublicKey.GetFingerprint());
         public SubverseEntity? Body { get; }
 
-        protected CertificateCookie(KNodeId160 key, SubverseEntity body)
+        protected CertificateCookie(EncryptionKeys keyContainer, SubverseEntity body)
         {
-            Key = key;
+            KeyContainer = keyContainer;
             Body = body;
         }
 
-        private CertificateCookie(EncryptionKeys publicKeyContainer, string cookieBody, byte[] blobBytes)
+        private CertificateCookie(EncryptionKeys keyContainer, string cookieBody, byte[] blobBytes)
         {
-            using var pgp = new PGP(publicKeyContainer);
+            using var pgp = new PGP(keyContainer);
 
             var result = pgp.VerifyAndReadSignedArmoredString(cookieBody);
             if (result.IsVerified)
             {
-                byte[] fingerprint = publicKeyContainer.PublicKey.GetFingerprint();
-                Key = new(fingerprint);
+                KeyContainer = keyContainer;
                 Body = JsonConvert.DeserializeObject<SubverseEntity>(result.ClearText,
                     new JsonSerializerSettings
                     {
@@ -51,10 +52,10 @@ namespace Subverse.Implementations
             using (var bodyReader = new StreamReader(bodyStream, Encoding.ASCII))
             using (var publicKeyStream = Utils.ExtractPGPBlockFromStream(bodyReader, "PUBLIC KEY BLOCK"))
             {
-                var publicKeyContainer = new EncryptionKeys(publicKeyStream);
+                var keyContainer = new EncryptionKeys(publicKeyStream);
                 var cookieBody = bodyReader.ReadToEnd();
 
-                return new CertificateCookie(publicKeyContainer, cookieBody, blobBytes);
+                return new CertificateCookie(keyContainer, cookieBody, blobBytes);
             }
         }
 
