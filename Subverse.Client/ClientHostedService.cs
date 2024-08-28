@@ -137,6 +137,9 @@ internal class ClientHostedService : BackgroundService
             try
             {
                 request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(messageBytes));
+                request.Header.From.FromURI.Host = "subverse";
+
+                messageBytes = request.GetBytes();
 
                 string fromEntityStr = request.Header.From.FromURI.User;
                 callerMap.TryAdd(request.Header.CallId, fromEntityStr);
@@ -145,7 +148,7 @@ internal class ClientHostedService : BackgroundService
 
             await sipTransport.SendRawAsync(
                 sipChannel.ListeningSIPEndPoint,
-                new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5060),
+                new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 50600),
                 messageBytes
                 );
         }
@@ -270,7 +273,7 @@ internal class ClientHostedService : BackgroundService
                     throw new InvalidOperationException("Could not establish connection to hub service!!");
                 }
 
-                sipChannel = new SIPUDPChannel(IPAddress.Any, 5059);
+                sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
                 sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
                 sipTransport.AddSIPChannel(sipChannel);
 
