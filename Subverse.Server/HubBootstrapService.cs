@@ -43,7 +43,7 @@ internal class HubBootstrapService : BackgroundService
             using var apiResponseMessage = await _http.PostAsync("ping", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
             var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub[]>();
 
-            return apiResponseArray?.Append(_hubService.GetSelf()).Select(hub => (hub.Hostname,
+            return apiResponseArray?.Select(hub => (hub.Hostname,
                 new IPEndPoint(IPAddress.Parse(new Uri(hub.ServiceUri).Host), new Uri(hub.ServiceUri).Port)))
                 ?? [];
         }
