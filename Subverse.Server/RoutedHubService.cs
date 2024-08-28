@@ -95,9 +95,9 @@ namespace Subverse.Server
         {
             await newConnection.CompleteHandshakeAsync(GetSelf());
 
-            if (newConnection.ServiceId is not null)
+            if (newConnection.RemoteConnectionId is not null)
             {
-                var connectionId = newConnection.ServiceId.Value;
+                var connectionId = newConnection.RemoteConnectionId.Value;
 
                 // Setup connection for routing & message events
                 newConnection.MessageReceived += Connection_MessageReceived;
@@ -145,9 +145,9 @@ namespace Subverse.Server
 
         public async Task CloseConnectionAsync(IEntityConnection connection)
         {
-            if (connection.ServiceId is not null)
+            if (connection.RemoteConnectionId is not null)
             {
-                var connectionId = connection.ServiceId.Value;
+                var connectionId = connection.RemoteConnectionId.Value;
 
                 _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
                 storedCts?.Dispose();
@@ -285,7 +285,7 @@ namespace Subverse.Server
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
             var connection = sender as IEntityConnection;
-            if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.ServiceId))
+            if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.RemoteConnectionId))
             {
                 var entityCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
                 if (entityCookie.Body is SubverseHub hub)
@@ -295,7 +295,7 @@ namespace Subverse.Server
 
                 await _cookieStorage.UpdateAsync(new(entityCookie.Key), entityCookie, default);
             }
-            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.ConnectionId))
+            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.LocalConnectionId))
             {
                 await ProcessMessageAsync(connection, e.Message);
             }
@@ -319,7 +319,7 @@ namespace Subverse.Server
 
         private async Task ProcessCommandMessageAsync(IEntityConnection connection, SubverseMessage message)
         {
-            if (connection.ServiceId is null || connection.ConnectionId is null)
+            if (connection.RemoteConnectionId is null || connection.LocalConnectionId is null)
                 throw new InvalidEntityException("No endpoint could be found!");
 
             string command = Encoding.UTF8.GetString(message.Content);
@@ -328,8 +328,8 @@ namespace Subverse.Server
                 case "PING":
                     await connection.SendMessageAsync(
                         new SubverseMessage([
-                                connection.ConnectionId.Value,
-                                connection.ServiceId.Value
+                                connection.LocalConnectionId.Value,
+                                connection.RemoteConnectionId.Value
                             ], _configStartTTL, ProtocolCode.Command,
                             Encoding.UTF8.GetBytes("PONG")
                             ));

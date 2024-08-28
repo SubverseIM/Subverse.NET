@@ -86,11 +86,11 @@ internal class ClientHostedService : BackgroundService
                     theirCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
                     entityKeysSource.TrySetResult(theirCookie.KeyContainer);
 
-                    if (e.Message.Tags[0].Equals(hubConnection.ConnectionId)) break;
+                    if (e.Message.Tags[0].Equals(hubConnection.LocalConnectionId)) break;
 
                     LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
                     await hubConnection.SendMessageAsync(new SubverseMessage(
-                            [hubConnection.ConnectionId.GetValueOrDefault(), e.Message.Tags[0]],
+                            [hubConnection.LocalConnectionId.GetValueOrDefault(), e.Message.Tags[0]],
                             DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
                             ));
 
@@ -107,8 +107,8 @@ internal class ClientHostedService : BackgroundService
                     await hubConnection.SendMessageAsync(
                         new SubverseMessage(
                             [
-                                hubConnection.ConnectionId.GetValueOrDefault(),
-                                hubConnection.ServiceId.GetValueOrDefault()
+                                hubConnection.LocalConnectionId.GetValueOrDefault(),
+                                hubConnection.RemoteConnectionId.GetValueOrDefault()
                             ],
                             DEFAULT_CONFIG_START_TTL, ProtocolCode.Command,
                             Encoding.UTF8.GetBytes("PONG")
@@ -167,7 +167,7 @@ internal class ClientHostedService : BackgroundService
             {
                 LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
                 await hubConnection.SendMessageAsync(new SubverseMessage(
-                        [hubConnection.ConnectionId.GetValueOrDefault(), toEntityId],
+                        [hubConnection.LocalConnectionId.GetValueOrDefault(), toEntityId],
                         DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
                         ));
 
@@ -184,7 +184,7 @@ internal class ClientHostedService : BackgroundService
 
                 await hubConnection.SendMessageAsync(
                     new SubverseMessage(
-                        [hubConnection.ConnectionId.GetValueOrDefault(), toEntityId],
+                        [hubConnection.LocalConnectionId.GetValueOrDefault(), toEntityId],
                         DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
                         encryptStream.ToArray()
                         ));
@@ -202,7 +202,7 @@ internal class ClientHostedService : BackgroundService
             {
                 LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
                 await hubConnection.SendMessageAsync(new SubverseMessage(
-                        [hubConnection.ConnectionId.GetValueOrDefault(), toEntityId],
+                        [hubConnection.LocalConnectionId.GetValueOrDefault(), toEntityId],
                         DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
                         ));
 
@@ -219,7 +219,7 @@ internal class ClientHostedService : BackgroundService
 
                 await hubConnection.SendMessageAsync(
                     new SubverseMessage(
-                        [hubConnection.ConnectionId.GetValueOrDefault(), toEntityId],
+                        [hubConnection.LocalConnectionId.GetValueOrDefault(), toEntityId],
                         DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
                         encryptStream.ToArray()
                         ));
@@ -255,9 +255,9 @@ internal class ClientHostedService : BackgroundService
                     privateKeyFile, privateKeyPassPhrase);
 
                 await hubConnection.CompleteHandshakeAsync(nodeSelf);
-                if (hubConnection.ServiceId is not null && hubConnection.ConnectionId is not null)
+                if (hubConnection.RemoteConnectionId is not null && hubConnection.LocalConnectionId is not null)
                 {
-                    nodeSelf = new SubverseNode(new(hubConnection.ServiceId.Value));
+                    nodeSelf = new SubverseNode(new(hubConnection.RemoteConnectionId.Value));
                 }
                 else
                 {
@@ -268,7 +268,7 @@ internal class ClientHostedService : BackgroundService
                 sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
                 sipTransport.AddSIPChannel(sipChannel);
 
-                Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.ConnectionId}");
+                Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.LocalConnectionId}");
                 hubConnection.MessageReceived += ProcessMessageReceived;
                 sipTransport.SIPTransportResponseReceived += SIPTransportResponseReceived;
                 sipTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;

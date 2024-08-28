@@ -29,8 +29,8 @@ namespace Subverse.Implementations
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public KNodeId160? ConnectionId { get; internal set; }
-        public KNodeId160? ServiceId { get; internal set; }
+        public KNodeId160? LocalConnectionId { get; internal set; }
+        public KNodeId160? RemoteConnectionId { get; internal set; }
 
         public QuicEntityConnection(QuicStream quicStream, FileInfo publicKeyFile, FileInfo privateKeyFile, string? privateKeyPassPhrase)
         {
@@ -54,7 +54,7 @@ namespace Subverse.Implementations
 
                 var myKeys = new EncryptionKeys(_publicKeyFile, _privateKeyFile, _privateKeyPassPhrase);
 
-                ConnectionId = new(myKeys.PublicKey.GetFingerprint());
+                LocalConnectionId = new(myKeys.PublicKey.GetFingerprint());
                 blobBytes = new LocalCertificateCookie(publicKeyStream, myKeys, self).ToBlobBytes();
             }
 
@@ -65,7 +65,7 @@ namespace Subverse.Implementations
                 using var publicKeyStream = Utils.ExtractPGPBlockFromStream(_quicStream, "PUBLIC KEY BLOCK");
                 challengeKeys = new EncryptionKeys(publicKeyStream, privateKeyStream, _privateKeyPassPhrase);
             }
-            ServiceId = new(challengeKeys.PublicKey.GetFingerprint());
+            RemoteConnectionId = new(challengeKeys.PublicKey.GetFingerprint());
 
             // Generate nonce
             byte[] originalNonce = RandomNumberGenerator.GetBytes(64);
@@ -92,14 +92,14 @@ namespace Subverse.Implementations
 
             if (!originalNonce.SequenceEqual(receivedNonce))
             {
-                throw new InvalidEntityException($"Connection to entity with ID: \"{ServiceId}\" could not be verified as authentic!");
+                throw new InvalidEntityException($"Connection to entity with ID: \"{RemoteConnectionId}\" could not be verified as authentic!");
             }
 
             _cts = new CancellationTokenSource();
             _receiveTask = RecieveAsync(_cts.Token);
 
             // Self-announce to other party
-            await SendMessageAsync(new SubverseMessage([ConnectionId.Value], DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, blobBytes));
+            await SendMessageAsync(new SubverseMessage([LocalConnectionId.Value], DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, blobBytes));
         }
 
         internal Task RecieveAsync(CancellationToken cancellationToken)
@@ -123,13 +123,13 @@ namespace Subverse.Implementations
 
                 Task.Run(async Task? () =>
                 {
-                    if(ServiceId is null || ConnectionId is null)
+                    if(RemoteConnectionId is null || LocalConnectionId is null)
                         throw new InvalidEntityException("No endpoint could be found!");
 
                     while(!cancellationToken.IsCancellationRequested)
                     {
                         var pingMsg = new SubverseMessage(
-                            [ConnectionId.Value, ServiceId.Value],
+                            [LocalConnectionId.Value, RemoteConnectionId.Value],
                             DEFAULT_CONFIG_START_TTL, ProtocolCode.Command,
                             Encoding.UTF8.GetBytes("PING")
                             );
