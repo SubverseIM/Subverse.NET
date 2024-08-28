@@ -74,28 +74,33 @@ internal class ClientHostedService : BackgroundService
                     await ProcessCommandMessageAsync(e.Message);
                     break;
                 case ProtocolCode.Entity:
-                    CertificateCookie theirCookie;
-                    TaskCompletionSource<EncryptionKeys>? entityKeysSource;
-
-                    if (!entityKeysSources.TryGetValue(e.Message.Tags[0], out entityKeysSource))
-                    {
-                        entityKeysSource = new TaskCompletionSource<EncryptionKeys>();
-                        entityKeysSources.TryAdd(e.Message.Tags[0], entityKeysSource);
-                    }
-
-                    theirCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
-                    entityKeysSource.TrySetResult(theirCookie.KeyContainer);
-
-                    if (e.Message.Tags[0].Equals(hubConnection.LocalConnectionId)) break;
-
-                    LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
-                    await hubConnection.SendMessageAsync(new SubverseMessage(
-                            [hubConnection.LocalConnectionId.GetValueOrDefault(), e.Message.Tags[0]],
-                            DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
-                            ));
-
+                    await ProcessEntityMessageAsync(e.Message);
                     break;
             }
+        }
+
+        async Task ProcessEntityMessageAsync(SubverseMessage message)
+        {
+            CertificateCookie theirCookie;
+            TaskCompletionSource<EncryptionKeys>? entityKeysSource;
+
+            if (!entityKeysSources.TryGetValue(message.Tags[0], out entityKeysSource))
+            {
+                entityKeysSource = new TaskCompletionSource<EncryptionKeys>();
+                entityKeysSources.TryAdd(message.Tags[0], entityKeysSource);
+            }
+
+            theirCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(message.Content);
+            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
+
+            if (message.Tags[0].Equals(hubConnection.LocalConnectionId)) return;
+
+            LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
+            await hubConnection.SendMessageAsync(new SubverseMessage(
+                    [hubConnection.LocalConnectionId.GetValueOrDefault(), message.Tags[0]],
+                    DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
+                    ));
+
         }
 
         async Task ProcessCommandMessageAsync(SubverseMessage message)
@@ -134,6 +139,7 @@ internal class ClientHostedService : BackgroundService
             try
             {
                 request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(messageBytes));
+
                 string fromEntityStr = request.Header.From.FromURI.User;
                 callerMap.TryAdd(request.Header.CallId, fromEntityStr);
             }
@@ -156,26 +162,34 @@ internal class ClientHostedService : BackgroundService
                              .ToArray();
         }
 
+        async Task<EncryptionKeys> GetEntityKeysAsync(KNodeId160 entityId) 
+        {
+            TaskCompletionSource<EncryptionKeys>? entityKeysSource;
+
+            if (!entityKeysSources.TryGetValue(entityId, out entityKeysSource))
+            {
+                LocalCertificateCookie myCookie = new LocalCertificateCookie(
+                    publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
+
+                await hubConnection.SendMessageAsync(new SubverseMessage(
+                        [hubConnection.LocalConnectionId.GetValueOrDefault(), entityId],
+                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
+                        ));
+
+                entityKeysSource = entityKeysSources.GetOrAdd(entityId,
+                    new TaskCompletionSource<EncryptionKeys>());
+            }
+
+            return await entityKeysSource.Task;
+        }
+
         async Task SIPTransportRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
         {
             string toEntityStr = sipRequest.Header.To.ToURI.User;
             KNodeId160 toEntityId = new(StringToByteArray(toEntityStr));
 
-            TaskCompletionSource<EncryptionKeys>? toEntityKeysSource;
+            EncryptionKeys entityKeys = await GetEntityKeysAsync(toEntityId);
 
-            if (!entityKeysSources.TryGetValue(toEntityId, out toEntityKeysSource))
-            {
-                LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
-                await hubConnection.SendMessageAsync(new SubverseMessage(
-                        [hubConnection.LocalConnectionId.GetValueOrDefault(), toEntityId],
-                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
-                        ));
-
-                toEntityKeysSource = entityKeysSources.GetOrAdd(toEntityId,
-                    new TaskCompletionSource<EncryptionKeys>());
-            }
-
-            EncryptionKeys entityKeys = await toEntityKeysSource.Task;
             using (var pgp = new PGP(entityKeys))
             using (var bufferStream = new MemoryStream(sipRequest.GetBytes()))
             using (var encryptStream = new MemoryStream())
@@ -193,24 +207,16 @@ internal class ClientHostedService : BackgroundService
 
         async Task SIPTransportResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPResponse sipResponse)
         {
-            string toEntityStr = callerMap[sipResponse.Header.CallId];
-            KNodeId160 toEntityId = new(StringToByteArray(toEntityStr));
-
-            TaskCompletionSource<EncryptionKeys>? toEntityKeysSource;
-
-            if (!entityKeysSources.TryGetValue(toEntityId, out toEntityKeysSource))
+            if(!callerMap.TryRemove(
+                sipResponse.Header.CallId, 
+                out string? fromEntityStr)) 
             {
-                LocalCertificateCookie myCookie = new LocalCertificateCookie(publicKeyFile.OpenRead(), myEntityKeys, nodeSelf);
-                await hubConnection.SendMessageAsync(new SubverseMessage(
-                        [hubConnection.LocalConnectionId.GetValueOrDefault(), toEntityId],
-                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Entity, myCookie.ToBlobBytes()
-                        ));
-
-                toEntityKeysSource = entityKeysSources.GetOrAdd(toEntityId,
-                    new TaskCompletionSource<EncryptionKeys>());
+                return;
             }
 
-            EncryptionKeys entityKeys = await toEntityKeysSource.Task;
+            KNodeId160 fromEntityId = new(StringToByteArray(fromEntityStr));
+            EncryptionKeys entityKeys = await GetEntityKeysAsync(fromEntityId);
+
             using (var pgp = new PGP(entityKeys))
             using (var bufferStream = new MemoryStream(sipResponse.GetBytes()))
             using (var encryptStream = new MemoryStream())
@@ -219,14 +225,16 @@ internal class ClientHostedService : BackgroundService
 
                 await hubConnection.SendMessageAsync(
                     new SubverseMessage(
-                        [hubConnection.LocalConnectionId.GetValueOrDefault(), toEntityId],
+                        [hubConnection.LocalConnectionId.GetValueOrDefault(), fromEntityId],
                         DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
                         encryptStream.ToArray()
                         ));
             }
         }
 
-        var hostname = _configuration.GetSection("Client").GetValue<string>("Hostname") ?? "localhost";
+        var hostname = _configuration.GetSection("Client")
+            .GetValue<string>("Hostname") ?? "localhost";
+
         Console.WriteLine($"Connecting to Subverse Network using DNS endpoint: {hostname}");
         do
         {
@@ -265,7 +273,7 @@ internal class ClientHostedService : BackgroundService
                 }
 
                 sipChannel = new SIPUDPChannel(IPAddress.Any, 5059);
-                sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.Unicode);
+                sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
                 sipTransport.AddSIPChannel(sipChannel);
 
                 Console.WriteLine($"Connected to hub successfully! Using ConnectionId: {hubConnection.LocalConnectionId}");
