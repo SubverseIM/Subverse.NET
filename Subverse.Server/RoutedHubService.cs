@@ -324,16 +324,18 @@ namespace Subverse.Server
             else if (
                 message.TimeToLive > 0 && 
                 _connectionMap.TryGetValue(message.Recipient,
-                    out HashSet<IPeerConnection>? connections) && 
-                connections.Any())
+                    out HashSet<IPeerConnection>? connections))
             {
-                // Forward the message to everyone interested in talking to the recipient.
-                var nextHopMessage = message with { TimeToLive = message.TimeToLive - 1 };
+                SubverseMessage nextHopMessage = message with { TimeToLive = message.TimeToLive - 1 };
+                using CancellationTokenSource cts = new CancellationTokenSource();
 
-                using var cts = new CancellationTokenSource();
-                var allTasks = connections.Select(x => 
-                    Task.Run(() => x.SendMessage(nextHopMessage), cts.Token)
-                    ).ToHashSet();
+                HashSet<Task> allTasks;
+                lock (connections)
+                {
+                    allTasks = connections.Select(x =>
+                        Task.Run(() => x.SendMessage(nextHopMessage), cts.Token)
+                        ).ToHashSet();
+                }
 
                 while (allTasks.Any())
                 {
