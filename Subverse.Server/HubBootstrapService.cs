@@ -1,6 +1,6 @@
 ﻿
 using PgpCore;
-using Subverse.Abstractions.Server;
+using Subverse.Abstractions;
 using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Server;
@@ -8,18 +8,20 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Net.Quic;
 using System.Net.Security;
+using System.Net.Sockets;
+using static Subverse.Models.SubverseMessage;
 
 internal class HubBootstrapService : BackgroundService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<HubBootstrapService> _logger;
     private readonly IPgpKeyProvider _keyProvider;
-    private readonly IHubService _hubService;
+    private readonly IPeerService _hubService;
 
     private readonly string _configApiUrl;
     private readonly HttpClient _http;
 
-    public HubBootstrapService(IConfiguration configuration, ILogger<HubBootstrapService> logger, IPgpKeyProvider keyProvider, IHubService hubService)
+    public HubBootstrapService(IConfiguration configuration, ILogger<HubBootstrapService> logger, IPgpKeyProvider keyProvider, IPeerService hubService)
     {
         _configuration = configuration;
 
@@ -41,11 +43,23 @@ internal class HubBootstrapService : BackgroundService
             var certifiedSelf = new LocalCertificateCookie(publicKeyStream, privateKeyContainer, _hubService.GetSelf());
 
             using var apiResponseMessage = await _http.PostAsync("ping", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
-            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubverseHub[]>();
+            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
 
-            return apiResponseArray?.Select(hub => (hub.Hostname,
-                new IPEndPoint(IPAddress.Parse(new Uri(hub.ServiceUri).Host), new Uri(hub.ServiceUri).Port)))
-                ?? [];
+            var validPeerHostnames = (apiResponseArray ?? [])
+                .Select(peer => peer.Hostname);
+
+            var validPeerEndpoints = (apiResponseArray ?? [])
+                .Select(peer => peer.DhtUri)
+                .Where(uri => uri is not null)
+                .Cast<string>()
+                .Select(uri => new Uri(uri))
+                .Select(uri => new IPEndPoint(
+                    Dns.GetHostAddresses(
+                        uri.DnsSafeHost, AddressFamily.InterNetwork)
+                    .Single(), uri.Port));
+
+            return validPeerHostnames
+                .Zip(validPeerEndpoints);
         }
     }
 
@@ -64,16 +78,15 @@ internal class HubBootstrapService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            try
+            foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
             {
-                foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
+                try
                 {
                     stoppingToken.ThrowIfCancellationRequested();
 
                     // Try connection w/ 5 second timeout
                     using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
                     {
-#pragma warning disable CA1416 // Validate platform compatibility
                         var quicConnection = await QuicConnection.ConnectAsync(
                             new QuicClientConnectionOptions
                             {
@@ -88,20 +101,21 @@ internal class HubBootstrapService : BackgroundService
                                     TargetHost = hostname,
                                 },
 
-                                MaxInboundBidirectionalStreams = 10,
+                                MaxInboundUnidirectionalStreams = 64
                             }, cts.Token);
-#pragma warning restore CA1416 // Validate platform compatibility
 
-                        var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetPublicKeyFile(),
-                            _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
-                        await _hubService.OpenConnectionAsync(hubConnection);
+                        var hubConnection = new QuicPeerConnection(quicConnection);
+                        await _hubService.OpenConnectionAsync(hubConnection,
+                            new SubverseMessage(_hubService.ConnectionId, 0, ProtocolCode.Command, []),
+                            cts.Token
+                            );
                     }
                 }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, null);
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, null);
+                }
             }
 
             await Task.Delay(TimeSpan.FromSeconds(5));

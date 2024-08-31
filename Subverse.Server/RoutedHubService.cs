@@ -1,60 +1,49 @@
 ﻿using Alethic.Kademlia;
 using Hangfire;
 using PgpCore;
-using SIPSorcery.SIP;
 using Subverse.Abstractions;
-using Subverse.Abstractions.Server;
 using Subverse.Exceptions;
 using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Stun;
 using System.Collections.Concurrent;
-using System.Globalization;
 using System.Net;
-using System.Net.Quic;
-using System.Net.Security;
-using System.Text;
-
 using static Subverse.Models.SubverseMessage;
 
 namespace Subverse.Server
 {
-    internal class RoutedHubService : IHubService
+    internal class RoutedHubService : IPeerService
     {
         private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
         private const int DEFAULT_CONFIG_START_TTL = 99;
 
         private readonly IConfiguration _configuration;
         private readonly ILogger<RoutedHubService> _logger;
-        private readonly IKHost<KNodeId160> _kHost;
-        private readonly ICookieStorage<KNodeId160> _cookieStorage;
         private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IStunUriProvider _stunUriProvider;
-
-        private readonly KNodeId160 _connectionId;
 
         private readonly string _configHostname;
         private readonly int _configStartTTL;
 
         private readonly ConcurrentDictionary<KNodeId160, Task> _taskMap;
         private readonly ConcurrentDictionary<KNodeId160, CancellationTokenSource> _ctsMap;
-        private readonly ConcurrentDictionary<KNodeId160, HashSet<IEntityConnection>> _connectionMap;
+        private readonly ConcurrentDictionary<KNodeId160, HashSet<IPeerConnection>> _connectionMap;
+
+        private readonly ConcurrentDictionary<KNodeId160, TaskCompletionSource<EncryptionKeys>> _entityKeysSources;
+        private readonly EncryptionKeys _myEntityKeys;
 
         private IPEndPoint? _localEndPoint;
-        private SubverseHub? _cachedSelf;
+        private SubversePeer? _cachedSelf;
 
-        // Solution from: https://stackoverflow.com/a/321404
-        // Adapted for increased performance
-        private static byte[] StringToByteArray(string hex)
-        {
-            return Enumerable.Range(0, hex.Length)
-                             .Where(x => (x & 1) == 0)
-                             .Select(x => byte.Parse(hex.AsSpan().Slice(x, 2), NumberStyles.HexNumber))
-                             .ToArray();
-        }
+        public KNodeId160 ConnectionId { get; }
 
-        public RoutedHubService(IConfiguration configuration, ILogger<RoutedHubService> logger, IKHost<KNodeId160> kHost, ICookieStorage<KNodeId160> cookieStorage, IMessageQueue<string> messageQueue, IPgpKeyProvider keyProvider, IStunUriProvider stunUriProvider)
+        public RoutedHubService(
+            IConfiguration configuration,
+            ILogger<RoutedHubService> logger,
+            IMessageQueue<string> messageQueue,
+            IPgpKeyProvider keyProvider,
+            IStunUriProvider stunUriProvider)
         {
             _configuration = configuration;
 
@@ -64,21 +53,24 @@ namespace Subverse.Server
             _configStartTTL = _configuration.GetSection("HubService")?
                 .GetValue<int?>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
 
-            QuicEntityConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
+            QuicPeerConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _logger = logger;
-            _kHost = kHost;
-            _cookieStorage = cookieStorage;
             _messageQueue = messageQueue;
             _keyProvider = keyProvider;
             _stunUriProvider = stunUriProvider;
 
-            var publicKeyContainer = new EncryptionKeys(_keyProvider.GetPublicKeyFile());
-            _connectionId = new(publicKeyContainer.PublicKey.GetFingerprint());
+            _myEntityKeys = new EncryptionKeys(
+                _keyProvider.GetPublicKeyFile(),
+                _keyProvider.GetPrivateKeyFile(),
+                _keyProvider.GetPrivateKeyPassPhrase()
+                );
+            _entityKeysSources = new();
+            ConnectionId = new(_myEntityKeys.PublicKey.GetFingerprint());
 
             _taskMap = new ConcurrentDictionary<KNodeId160, Task>();
             _ctsMap = new ConcurrentDictionary<KNodeId160, CancellationTokenSource>();
-            _connectionMap = new ConcurrentDictionary<KNodeId160, HashSet<IEntityConnection>>();
+            _connectionMap = new ConcurrentDictionary<KNodeId160, HashSet<IPeerConnection>>();
 
             // Schedule queue flushing job
             RecurringJob.AddOrUpdate(
@@ -87,92 +79,99 @@ namespace Subverse.Server
                 Cron.Minutely);
         }
 
-        public async Task OpenConnectionAsync(IEntityConnection newConnection)
+        public async Task<KNodeId160> OpenConnectionAsync(IPeerConnection peerConnection, SubverseMessage? message, CancellationToken cancellationToken)
         {
-            await newConnection.CompleteHandshakeAsync(GetSelf());
-
-            if (newConnection.RemoteConnectionId is not null)
+            KNodeId160 connectionId = await peerConnection
+                .CompleteHandshakeAsync(message, cancellationToken);
+            if (message is null)
             {
-                var connectionId = newConnection.RemoteConnectionId.Value;
-
                 // Setup connection for routing & message events
-                newConnection.MessageReceived += Connection_MessageReceived;
-
-                HashSet<IEntityConnection> newConnections = [newConnection];
-                _connectionMap.AddOrUpdate(connectionId, newConnections,
-                    (key, existingConnections) =>
-                    {
-                        lock (existingConnections)
-                        {
-                            existingConnections.UnionWith(newConnections);
-                            return existingConnections;
-                        }
-                    });
-
-
-                // Immediately send all messages we've cached for this particular entity (in the background)
-                var newCts = new CancellationTokenSource();
-                _ctsMap.AddOrUpdate(connectionId, newCts,
-                    (key, oldCts) =>
-                    {
-                        oldCts.Dispose();
-                        return newCts;
-                    });
-
-                Func<KNodeId160, Task> newTaskFactory = (key) =>
-                    Task.Run(() => FlushMessagesAsync(key, newCts.Token));
-
-                _ = _taskMap.AddOrUpdate(connectionId, newTaskFactory, (key, oldTask) =>
-                    {
-                        try
-                        {
-                            oldTask.Wait();
-                        }
-                        catch (OperationCanceledException) { }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex.Message);
-                        }
-
-                        return newTaskFactory(key);
-                    });
+                peerConnection.MessageReceived += Connection_MessageReceived;
             }
+
+            HashSet<IPeerConnection> newConnections = [peerConnection];
+            _connectionMap.AddOrUpdate(connectionId, newConnections,
+                (key, existingConnections) =>
+                {
+                    lock (existingConnections)
+                    {
+                        existingConnections.UnionWith(newConnections);
+                        return existingConnections;
+                    }
+                });
+
+
+            // Immediately send all messages we've cached for this particular entity (in the background)
+            var newCts = new CancellationTokenSource();
+            _ctsMap.AddOrUpdate(connectionId, newCts,
+                (key, oldCts) =>
+                {
+                    oldCts.Dispose();
+                    return newCts;
+                });
+
+            Func<KNodeId160, Task> newTaskFactory = (key) =>
+                Task.Run(() => FlushMessagesAsync(key, newCts.Token));
+
+            _ = _taskMap.AddOrUpdate(connectionId, newTaskFactory, (key, oldTask) =>
+                {
+                    try
+                    {
+                        oldTask.Wait();
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex.Message);
+                    }
+
+                    return newTaskFactory(key);
+                });
+
+            return connectionId;
         }
 
-        public async Task CloseConnectionAsync(IEntityConnection connection)
+        public async Task CloseConnectionAsync(IPeerConnection connection, KNodeId160 connectionId, CancellationToken cancellationToken)
         {
-            if (connection.RemoteConnectionId is not null)
+            _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
+            storedCts?.Dispose();
+
+            _taskMap.Remove(connectionId, out Task? storedTask);
+            try
             {
-                var connectionId = connection.RemoteConnectionId.Value;
+                if (storedTask is not null) await storedTask;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, null);
+            }
 
-                _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
-                storedCts?.Dispose();
-
-                _taskMap.Remove(connectionId, out Task? storedTask);
-                try
+            if (_connectionMap.TryRemove(connectionId, out HashSet<IPeerConnection>? storedConnections))
+            {
+                storedConnections.Remove(connection);
+                if (storedConnections.Any())
                 {
-                    if (storedTask is not null) await storedTask;
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, null);
-                }
-
-                if (_connectionMap.TryRemove(connectionId, out HashSet<IEntityConnection>? storedConnections))
-                {
-                    storedConnections.Remove(connection);
                     _connectionMap.AddOrUpdate(connectionId, storedConnections,
-                    (key, existingConnections) =>
-                    {
-                        lock (existingConnections)
+                        (key, existingConnections) =>
                         {
-                            existingConnections.UnionWith(storedConnections);
-                            return existingConnections;
-                        }
-                    });
+                            lock (existingConnections)
+                            {
+                                existingConnections.UnionWith(storedConnections);
+                                return existingConnections;
+                            }
+                        });
                 }
+            }
 
+
+            HashSet<IPeerConnection> allConnections =
+                _connectionMap.Values
+                .SelectMany(x => x)
+                .ToHashSet();
+
+            if (allConnections.Contains(connection))
+            {
                 connection.Dispose();
             }
         }
@@ -184,7 +183,7 @@ namespace Subverse.Server
 
             while (message is not null)
             {
-                await RouteMessageAsync(connectionId, message);
+                await RouteMessageAsync(message);
 
                 cancellationToken.ThrowIfCancellationRequested();
                 message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
@@ -198,39 +197,30 @@ namespace Subverse.Server
 
             while (keyedMessage is not null)
             {
-                KNodeId160 recipient = new(StringToByteArray(keyedMessage.Key));
-                await RouteMessageAsync(recipient, keyedMessage.Message);
+                await RouteMessageAsync(keyedMessage.Message);
 
                 cancellationToken.ThrowIfCancellationRequested();
                 keyedMessage = await _messageQueue.DequeueAsync();
             }
         }
 
-        public SubverseHub GetSelf()
+        public SubversePeer GetSelf()
         {
             lock (this)
             {
                 if (_cachedSelf is null)
                 {
-                    var quicRemoteEndPoint = GetRemoteEndPointAsync(30603).Result;
-                    var kRemoteEndPoint = GetRemoteEndPointAsync(30604).Result;
+                    IPEndPoint serviceEndPoint = GetRemoteEndPointAsync(30603).Result;
 
-                    return _cachedSelf = new SubverseHub(
+                    return _cachedSelf = new SubversePeer(
                             _configHostname,
                             new UriBuilder()
                             {
                                 Scheme = "subverse",
-                                Host = quicRemoteEndPoint.Address.ToString(),
-                                Port = quicRemoteEndPoint.Port
+                                Host = serviceEndPoint.Address.ToString(),
+                                Port = serviceEndPoint.Port
                             }.ToString(),
-                            new UriBuilder()
-                            {
-                                Scheme = "udp",
-                                Host = kRemoteEndPoint.Address.ToString(),
-                                Port = kRemoteEndPoint.Port
-                            }.ToString(),
-                            DateTime.UtcNow,
-                            [ /* No owner metadata for now... */ ]
+                            DateTime.UtcNow
                             );
                 }
                 else
@@ -280,146 +270,76 @@ namespace Subverse.Server
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
-            var connection = sender as IEntityConnection;
-            if (e.Message.Tags.Length == 1 && e.Message.Tags[0].Equals(connection?.RemoteConnectionId))
+            if (!e.Message.Recipient.Equals(ConnectionId))
             {
-                var entityCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(e.Message.Content);
-                if (entityCookie.Body is SubverseHub hub)
-                {
-                    _kHost.RegisterEndpoint(new(hub.KHostUri));
-                }
-
-                await _cookieStorage.UpdateAsync(new(entityCookie.Key), entityCookie, default);
-            }
-            else if (e.Message.Tags.Length == 2 && e.Message.Tags[1].Equals(connection?.LocalConnectionId))
-            {
-                await ProcessMessageAsync(connection, e.Message);
-            }
-            else if (e.Message.Tags.Length > 1)
-            {
-                await Task.WhenAll(e.Message.Tags.Skip(1)
-                    .Select(r => Task.Run(() => RouteMessageAsync(r, e.Message)))
-                    );
-            }
-        }
-
-        private async Task ProcessMessageAsync(IEntityConnection connection, SubverseMessage message)
-        {
-            switch (message.Code)
-            {
-                case ProtocolCode.Command:
-                    await ProcessCommandMessageAsync(connection, message);
-                    break;
-            }
-        }
-
-        private async Task ProcessCommandMessageAsync(IEntityConnection connection, SubverseMessage message)
-        {
-            if (connection.RemoteConnectionId is null || connection.LocalConnectionId is null)
-                throw new InvalidEntityException("No endpoint could be found!");
-
-            string command = Encoding.UTF8.GetString(message.Content);
-            switch (command)
-            {
-                case "PING":
-                    await connection.SendMessageAsync(
-                        new SubverseMessage([
-                                connection.LocalConnectionId.Value,
-                                connection.RemoteConnectionId.Value
-                            ], _configStartTTL, ProtocolCode.Command,
-                            Encoding.UTF8.GetBytes("PONG")
-                            ));
-                    break;
-            }
-        }
-
-        private async Task RouteMessageAsync(KNodeId160 recipient, SubverseMessage message)
-        {
-            if (message.TimeToLive < 0)
-            {
-                await RouteMessageAsync(recipient, message with { TimeToLive = _configStartTTL });
-            }
-            else if (_connectionMap.TryGetValue(recipient, out HashSet<IEntityConnection>? connections))
-            {
-                // Forward the message via direct route, since they are already connected to us.
-                await Task.WhenAll(connections.Select(x => x.SendMessageAsync(message)));
+                await RouteMessageAsync(e.Message);
             }
             else
             {
-                var entityCookie = await _cookieStorage.ReadAsync<CertificateCookie>(new(recipient), default);
-                if (entityCookie?.Body is SubverseHub hub)
-                {
-                    // If this message has a valid TTL value...
-                    if (message.TimeToLive > 0)
-                    {
-                        // Establish connection with remote hub...
+                await ProcessMessageAsync(e.Message);
+            }
+        }
 
-#pragma warning disable CA1416 // Validate platform compatibility
-                        try
-                        {
-                            // Try connection w/ 5 second timeout
-                            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
-                            {
-                                var serviceUri = new Uri(hub.ServiceUri);
-                                var quicConnection = await QuicConnection.ConnectAsync(
-                                    new QuicClientConnectionOptions
-                                    {
-                                        RemoteEndPoint = new IPEndPoint(IPAddress.Parse(serviceUri.Host), serviceUri.Port),
+        private async Task ProcessMessageAsync(SubverseMessage message)
+        {
+            switch (message.Code)
+            {
+                case ProtocolCode.Entity:
+                    await ProcessEntityAsync(message);
+                    break;
+            }
+        }
 
-                                        DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
-                                        DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
+        private async Task ProcessEntityAsync(SubverseMessage message)
+        {
+            CertificateCookie theirCookie;
+            TaskCompletionSource<EncryptionKeys>? entityKeysSource;
 
-                                        ClientAuthenticationOptions = new()
-                                        {
-                                            ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
-                                            TargetHost = hub.Hostname
-                                        },
+            theirCookie = (CertificateCookie)CertificateCookie.FromBlobBytes(message.Content);
+            if (!_entityKeysSources.TryGetValue(theirCookie.Key, out entityKeysSource))
+            {
+                entityKeysSource = new TaskCompletionSource<EncryptionKeys>();
+                _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
+            }
 
-                                        MaxInboundBidirectionalStreams = 10
-                                    }, cts.Token);
+            if (!entityKeysSource.TrySetResult(theirCookie.KeyContainer)) { return; }
 
-                                var hubConnection = new QuicHubConnection(quicConnection, _keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
-                                await OpenConnectionAsync(hubConnection);
+            LocalCertificateCookie myCookie = new LocalCertificateCookie(
+                _keyProvider.GetPublicKeyFile().OpenRead(),
+                _myEntityKeys, GetSelf() with { DhtUri = null });
 
-#pragma warning restore CA1416 // Validate platform compatibility
+            await RouteMessageAsync(
+                new SubverseMessage(
+                    theirCookie.Key, DEFAULT_CONFIG_START_TTL,
+                    ProtocolCode.Entity, myCookie.ToBlobBytes()
+                ));
+        }
 
-                                // ...and forward the message to it! Decrement TTL because this causes an actual hop!
-                                await RouteMessageAsync(recipient, message with { TimeToLive = message.TimeToLive - 1 });
-                            }
-                        }
-                        catch (OperationCanceledException) { }
-                        catch (Exception ex)
-                        {
-                            // Log any unexpected errors.
-                            _logger.LogError(ex, null);
-                        }
-
-                        // Our only hopes of contacting this hub have run out!! For now...
-                        // Queue this message for future delivery.
-                        await _messageQueue.EnqueueAsync(recipient.ToString(), message);
-                    }
-                }
-                else if (entityCookie?.Body is SubverseUser user)
-                {
-                    // Forward the message to all of the user's owned nodes
-                    await Task.WhenAll(user.OwnedNodes
-                        .Select(r => r.RefersTo)
-                        .Select(n => Task.Run(() => RouteMessageAsync(n, message)))
-                        );
-                }
-                else if (entityCookie?.Body is SubverseNode node)
-                {
-                    if (node.MostRecentlySeenBy.RefersTo.Equals(_connectionId))
-                    {
-                        // Node was last seen by us, we'd better remember this message so we can (hopefully) eventually send it!
-                        await _messageQueue.EnqueueAsync(node.MostRecentlySeenBy.RefersTo.ToString(), message);
-                    }
-                    else
-                    {
-                        // Forward message to the hub this node was last seen by
-                        await RouteMessageAsync(node.MostRecentlySeenBy.RefersTo, message);
-                    }
-                }
+        private async Task RouteMessageAsync(SubverseMessage message, CancellationToken cancellationToken = default)
+        {
+            if (message.TimeToLive < 0)
+            {
+                await RouteMessageAsync(message with { TimeToLive = _configStartTTL });
+            }
+            else if (message.TimeToLive > 0
+                && _connectionMap.TryGetValue(
+                    message.Recipient,
+                    out HashSet<IPeerConnection>? connections
+                    )
+                && connections.Any())
+            {
+                // Forward the message to everyone interested in talking to the recipient.
+                var nextHopMessage = message with { TimeToLive = message.TimeToLive - 1 };
+                await Task.WhenAny(connections.Select(x => x
+                    .SendMessageAsync(nextHopMessage, cancellationToken)
+                    ));
+            }
+            // Otherwise, if this message has a valid TTL value...
+            else if (message.TimeToLive > 0)
+            {
+                // Our only hopes of contacting this hub have run out!! For now...
+                // Queue this message for future delivery.
+                await _messageQueue.EnqueueAsync(message.Recipient.ToString(), message);
             }
         }
     }

@@ -1,10 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using Subverse.Implementations;
 using Subverse.Models;
-using System.Linq;
 
 namespace Subverse.Bootstrapper.Controllers
 {
@@ -38,7 +36,7 @@ namespace Subverse.Bootstrapper.Controllers
         [HttpPost("ping")]
         [Consumes("application/octet-stream")]
         [Produces("application/json")]
-        public SubverseHub[] ExchangeRecentlySeenPeerInfo()
+        public SubversePeer[] ExchangeRecentlySeenPeerInfo()
         {
             byte[] blobBytes;
             using (var memoryStream = new MemoryStream())
@@ -53,17 +51,17 @@ namespace Subverse.Bootstrapper.Controllers
                 _logger.LogInformation($"Accepting request from claimed identity: {certifiedCookie.Key}");
 
                 var cookieKey = certifiedCookie.Key.ToString();
-                var cookieBody = (SubverseHub)certifiedCookie.Body with { MostRecentlySeenOn = DateTime.UtcNow };
+                var cookieBody = certifiedCookie.Body with { MostRecentlySeenOn = DateTime.UtcNow };
                 var jsonValue = JsonConvert.SerializeObject(cookieBody);
 
                 _cache.SetString(cookieKey, jsonValue);
 
                 return _keys
                     .Where(key => key != cookieKey)
-                    .Select(key => JsonConvert.DeserializeObject<SubverseHub>(_cache.GetString(key) ?? "null"))
+                    .Select(key => JsonConvert.DeserializeObject<SubversePeer>(_cache.GetString(key) ?? "null"))
                     .OrderByDescending(x => x?.MostRecentlySeenOn ?? DateTime.MinValue)
                     .Where(x => x is not null)
-                    .Cast<SubverseHub>()
+                    .Cast<SubversePeer>()
                     .Take(_configTopN)
                     .ToArray();
             }

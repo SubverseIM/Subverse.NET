@@ -10,7 +10,7 @@ namespace Subverse.Implementations
     {
         private readonly Stream publicKeyStream;
 
-        public LocalCertificateCookie(Stream publicKeyStream, EncryptionKeys keyContainer, SubverseEntity cookieBody) :
+        public LocalCertificateCookie(Stream publicKeyStream, EncryptionKeys keyContainer, SubversePeer cookieBody) :
             base(keyContainer, cookieBody)
         {
             this.publicKeyStream = publicKeyStream;

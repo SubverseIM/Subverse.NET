@@ -15,9 +15,9 @@ namespace Subverse.Implementations
         public EncryptionKeys KeyContainer { get; }
 
         public KNodeId160 Key => new(KeyContainer.PublicKey.GetFingerprint());
-        public SubverseEntity? Body { get; }
+        public SubversePeer? Body { get; }
 
-        protected CertificateCookie(EncryptionKeys keyContainer, SubverseEntity body)
+        protected CertificateCookie(EncryptionKeys keyContainer, SubversePeer body)
         {
             KeyContainer = keyContainer;
             Body = body;
@@ -31,7 +31,7 @@ namespace Subverse.Implementations
             if (result.IsVerified)
             {
                 KeyContainer = keyContainer;
-                Body = JsonConvert.DeserializeObject<SubverseEntity>(result.ClearText,
+                Body = JsonConvert.DeserializeObject<SubversePeer>(result.ClearText,
                     new JsonSerializerSettings
                     {
                         TypeNameHandling = TypeNameHandling.Objects,
