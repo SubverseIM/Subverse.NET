@@ -9,6 +9,6 @@ namespace Subverse.Abstractions
 
         Task<KNodeId160> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken);
 
-        Task SendMessageAsync(SubverseMessage message, CancellationToken cancellationToken);
+        void SendMessage(SubverseMessage message);
     }
 }

@@ -117,12 +117,8 @@ namespace Subverse.Implementations
             }, cancellationToken);
         }
 
-        public async Task SendMessageAsync(SubverseMessage message, CancellationToken cancellationToken)
+        public void SendMessage(SubverseMessage message)
         {
-            // Yield to other threads, give a chance to cancel.
-            await Task.Yield();
-            cancellationToken.ThrowIfCancellationRequested();
-
             QuicStream quicStream = _quicStreamMap[message.Recipient];
             lock (quicStream)
             {

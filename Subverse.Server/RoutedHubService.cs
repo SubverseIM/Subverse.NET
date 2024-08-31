@@ -315,29 +315,44 @@ namespace Subverse.Server
                 ));
         }
 
-        private async Task RouteMessageAsync(SubverseMessage message, CancellationToken cancellationToken = default)
+        private async Task RouteMessageAsync(SubverseMessage message)
         {
             if (message.TimeToLive < 0)
             {
                 await RouteMessageAsync(message with { TimeToLive = _configStartTTL });
             }
-            else if (message.TimeToLive > 0
-                && _connectionMap.TryGetValue(
-                    message.Recipient,
-                    out HashSet<IPeerConnection>? connections
-                    )
-                && connections.Any())
+            else if (
+                message.TimeToLive > 0 && 
+                _connectionMap.TryGetValue(message.Recipient,
+                    out HashSet<IPeerConnection>? connections) && 
+                connections.Any())
             {
                 // Forward the message to everyone interested in talking to the recipient.
                 var nextHopMessage = message with { TimeToLive = message.TimeToLive - 1 };
-                await Task.WhenAny(connections.Select(x => x
-                    .SendMessageAsync(nextHopMessage, cancellationToken)
-                    ));
+
+                using var cts = new CancellationTokenSource();
+                var allTasks = connections.Select(x => 
+                    Task.Run(() => x.SendMessage(nextHopMessage), cts.Token)
+                    ).ToHashSet();
+
+                while (allTasks.Any())
+                {
+                    var completedTask = await Task.WhenAny(allTasks);
+                    try
+                    {
+                        await completedTask;
+                        cts.Cancel();
+                    }
+                    catch (Exception) 
+                    {
+                        allTasks.Remove(completedTask);
+                    }
+                }
             }
             // Otherwise, if this message has a valid TTL value...
             else if (message.TimeToLive > 0)
             {
-                // Our only hopes of contacting this hub have run out!! For now...
+                // Our only hopes of contacting this peer have run out!! For now...
                 // Queue this message for future delivery.
                 await _messageQueue.EnqueueAsync(message.Recipient.ToString(), message);
             }
