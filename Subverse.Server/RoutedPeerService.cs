@@ -447,29 +447,15 @@ namespace Subverse.Server
                     out HashSet<IPeerConnection>? connections))
             {
                 SubverseMessage nextHopMessage = message with { TimeToLive = message.TimeToLive - 1 };
-                using CancellationTokenSource cts = new CancellationTokenSource();
-
                 HashSet<Task> allTasks;
                 lock (connections)
                 {
                     allTasks = connections.Select(x =>
-                        Task.Run(() => x.SendMessage(nextHopMessage), cts.Token)
+                        Task.Run(() => x.SendMessage(nextHopMessage))
                         ).ToHashSet();
                 }
 
-                while (allTasks.Any())
-                {
-                    var completedTask = await Task.WhenAny(allTasks);
-                    try
-                    {
-                        await completedTask;
-                        cts.Cancel();
-                    }
-                    catch (Exception)
-                    {
-                        allTasks.Remove(completedTask);
-                    }
-                }
+                await Task.WhenAll(allTasks);
             }
             // Otherwise, if this message has a valid TTL value...
             else if (message.TimeToLive > 0)

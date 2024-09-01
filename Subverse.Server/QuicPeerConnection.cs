@@ -40,41 +40,48 @@ namespace Subverse.Server
         {
             QuicStream newQuicStream;
             SubversePeerId recipient;
+
+            CancellationTokenSource newCts;
+            Task newTask;
             if (message is null)
             {
                 newQuicStream = await _quicConnection
                     .AcceptInboundStreamAsync(cancellationToken);
 
-                CancellationTokenSource newCts = new CancellationTokenSource();
-                Task newTask = RecieveAsync(newQuicStream, newCts.Token);
+                newCts = new CancellationTokenSource();
+                newTask = RecieveAsync(newQuicStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task;
                 recipient = initialMessage.Recipient;
-
-                _ = _ctsMap.AddOrUpdate(initialMessage.Recipient, newCts,
-                        (key, oldCts) =>
-                        {
-                            oldCts.Dispose();
-                            return newCts;
-                        });
-
-                _ = _taskMap.AddOrUpdate(initialMessage.Recipient, newTask,
-                    (key, oldTask) =>
-                    {
-                        try
-                        {
-                            oldTask.Wait();
-                        }
-                        catch (OperationCanceledException) { }
-                        return newTask;
-                    });
             }
             else
             {
                 newQuicStream = await _quicConnection.OpenOutboundStreamAsync(
-                    QuicStreamType.Unidirectional, cancellationToken);
+                    QuicStreamType.Bidirectional, cancellationToken);
+
+                newCts = new CancellationTokenSource();
+                newTask = RecieveAsync(newQuicStream, newCts.Token);
+
                 recipient = message.Recipient;
             }
+
+            _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                    (key, oldCts) =>
+                    {
+                        oldCts.Dispose();
+                        return newCts;
+                    });
+
+            _ = _taskMap.AddOrUpdate(recipient, newTask,
+                (key, oldTask) =>
+                {
+                    try
+                    {
+                        oldTask.Wait();
+                    }
+                    catch (OperationCanceledException) { }
+                    return newTask;
+                });
 
             _ = _quicStreamMap.AddOrUpdate(recipient, newQuicStream,
                     (key, oldQuicStream) =>
