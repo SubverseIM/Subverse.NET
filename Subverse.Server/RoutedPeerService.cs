@@ -154,7 +154,7 @@ namespace Subverse.Server
                     return newTaskFactory(key);
                 });
 
-            if (message is null)
+            if (message is not null)
             {
                 await RouteEntityAsync(connectionId);
             }
