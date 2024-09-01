@@ -76,7 +76,7 @@ internal class PeerBootstrapService : BackgroundService
                 {
                     stoppingToken.ThrowIfCancellationRequested();
 
-                    if (!_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) || 
+                    if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) && 
                         !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
                     {
                         continue;
