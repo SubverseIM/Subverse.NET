@@ -55,14 +55,13 @@ namespace Subverse.Bootstrapper.Controllers
         [HttpPost("ping")]
         [Consumes("application/json")]
         [Produces("application/json")]
-        public SubversePeer[] ExchangeRecentlySeenPeerInfo()
+        public async Task<SubversePeer[]> ExchangeRecentlySeenPeerInfoAsync(CancellationToken cancellationToken)
         {
             SubversePeer? thisPeer;
             using (var streamReader = new StreamReader(Request.Body, Encoding.UTF8))
-            using (var jsonReader = new JsonTextReader(streamReader))
             {
-                var serializer = new JsonSerializer();
-                thisPeer = serializer.Deserialize<SubversePeer?>(jsonReader);
+                string bodyJson = await streamReader.ReadToEndAsync();
+                thisPeer = JsonConvert.DeserializeObject<SubversePeer?>(bodyJson);
             }
 
             if (thisPeer is not null)
@@ -74,11 +73,11 @@ namespace Subverse.Bootstrapper.Controllers
                     thisPeer with { MostRecentlySeenOn = DateTime.UtcNow }
                     );
 
-                _cache.SetString(thisPeerKey, thisPeerJsonStr);
+                await _cache.SetStringAsync(thisPeerKey, thisPeerJsonStr);
 
-                var allPeerKeys = AppendWithLockAsync(
+                var allPeerKeys = await AppendWithLockAsync(
                     CACHE_KNOWN_PEERS_KEY, thisPeerKey
-                    ).Result;
+                    );
                 return allPeerKeys
                     .Where(otherPeerKey => otherPeerKey != thisPeerKey)
                     .Select(otherPeerKey => JsonConvert.DeserializeObject<SubversePeer>(_cache.GetString(otherPeerKey) ?? "null"))
