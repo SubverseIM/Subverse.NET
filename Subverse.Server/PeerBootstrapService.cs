@@ -107,7 +107,7 @@ internal class PeerBootstrapService : BackgroundService
                 }
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1.0));
+            await Task.Delay(TimeSpan.FromSeconds(5.0));
         }
 
         _http.Dispose();
