@@ -442,7 +442,7 @@ namespace Subverse.Server
                 await RouteMessageAsync(message with { TimeToLive = _configStartTTL });
             }
             else if (
-                message.TimeToLive > 0 &&
+                message.TimeToLive >= 0 &&
                 _connectionMap.TryGetValue(message.Recipient,
                     out HashSet<IPeerConnection>? connections))
             {
@@ -458,7 +458,7 @@ namespace Subverse.Server
                 await Task.WhenAll(allTasks);
             }
             // Otherwise, if this message has a valid TTL value...
-            else if (message.TimeToLive > 0)
+            else if (message.TimeToLive >= 0)
             {
                 // Our only hopes of contacting this peer have run out!! For now...
                 // Queue this message for future delivery.
