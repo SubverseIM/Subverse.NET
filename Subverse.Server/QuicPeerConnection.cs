@@ -135,6 +135,7 @@ namespace Subverse.Server
                     }
                 }
             }
+            else { throw new NotSupportedException(); }
         }
 
         protected virtual void Dispose(bool disposing)
