@@ -454,8 +454,6 @@ namespace Subverse.Server
                         Task.Run(() => x.SendMessage(nextHopMessage))
                         ).ToHashSet();
                 }
-
-                await Task.WhenAll(allTasks);
             }
             // Otherwise, if this message has a valid TTL value...
             else if (message.TimeToLive >= 0)
