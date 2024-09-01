@@ -69,13 +69,6 @@ namespace Subverse.Server
                         catch (OperationCanceledException) { }
                         return newTask;
                     });
-
-                _ = _quicStreamMap.AddOrUpdate(recipient, newQuicStream,
-                        (key, oldQuicStream) =>
-                        {
-                            oldQuicStream.Dispose();
-                            return newQuicStream;
-                        });
             }
             else
             {
@@ -83,6 +76,13 @@ namespace Subverse.Server
                     QuicStreamType.Unidirectional, cancellationToken);
                 recipient = message.Recipient;
             }
+
+            _ = _quicStreamMap.AddOrUpdate(recipient, newQuicStream,
+                       (key, oldQuicStream) =>
+                       {
+                           oldQuicStream.Dispose();
+                           return newQuicStream;
+                       });
 
             if (message is not null) 
             {
