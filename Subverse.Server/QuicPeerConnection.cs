@@ -1,12 +1,13 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Bson;
 using Subverse.Abstractions;
+using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Types;
 using System.Collections.Concurrent;
 using System.Net.Quic;
 
-namespace Subverse.Implementations
+namespace Subverse.Server
 {
     public class QuicPeerConnection : IPeerConnection
     {

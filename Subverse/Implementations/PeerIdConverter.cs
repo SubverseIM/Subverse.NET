@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace Subverse.Implementations
 {
-    internal class PeerIdConverter : JsonConverter<SubversePeerId>
+    public class PeerIdConverter : JsonConverter<SubversePeerId>
     {
         private static byte[] StringToByteArray(string hex)
         {
