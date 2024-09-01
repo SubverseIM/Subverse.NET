@@ -29,23 +29,22 @@ namespace Subverse.Bootstrapper.Controllers
             _logger = logger;
         }
 
-        private async Task<IEnumerable<T>> AppendWithLockAsync<T>(string key, T value, CancellationToken cancellationToken)
+        private async Task<IEnumerable<T>> AppendWithLockAsync<T>(string key, T value)
         {
             string lockKey = $"{CACHE_LOCK_KEY}{key}";
-            string? lockValue = await _cache.GetStringAsync($"{CACHE_LOCK_KEY}{key}", cancellationToken);
+            string? lockValue = await _cache.GetStringAsync($"{CACHE_LOCK_KEY}{key}");
 
             // wait for lock to expire
             while (lockValue is not null) 
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(CACHE_LOCK_WAIT_MS));
-                lockValue = await _cache.GetStringAsync(lockKey, cancellationToken);
+                lockValue = await _cache.GetStringAsync(lockKey);
             }
 
             await _cache.SetStringAsync($"{CACHE_LOCK_KEY}{key}", Guid.NewGuid().ToString(), 
-                new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMilliseconds(CACHE_LOCK_EXPIRE_MS) },
-                cancellationToken);
+                new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMilliseconds(CACHE_LOCK_EXPIRE_MS) });
 
-            string? jsonString = await _cache.GetStringAsync(key, cancellationToken);
+            string? jsonString = await _cache.GetStringAsync(key);
             HashSet<T> values = JsonConvert.DeserializeObject<HashSet<T>>(jsonString ?? "[]") ?? [];
             values.Add(value);
 
@@ -56,7 +55,7 @@ namespace Subverse.Bootstrapper.Controllers
         [HttpPost("ping")]
         [Consumes("application/json")]
         [Produces("application/json")]
-        public async Task<SubversePeer[]> ExchangeRecentlySeenPeerInfoAsync(CancellationToken cancellationToken)
+        public SubversePeer[] ExchangeRecentlySeenPeerInfo()
         {
             SubversePeer? thisPeer;
             using (var streamReader = new StreamReader(Request.Body, Encoding.UTF8))
@@ -77,9 +76,9 @@ namespace Subverse.Bootstrapper.Controllers
 
                 _cache.SetString(thisPeerKey, thisPeerJsonStr);
 
-                var allPeerKeys = await AppendWithLockAsync(
-                    CACHE_KNOWN_PEERS_KEY, thisPeerKey, cancellationToken
-                    );
+                var allPeerKeys = AppendWithLockAsync(
+                    CACHE_KNOWN_PEERS_KEY, thisPeerKey
+                    ).Result;
                 return allPeerKeys
                     .Where(otherPeerKey => otherPeerKey != thisPeerKey)
                     .Select(otherPeerKey => JsonConvert.DeserializeObject<SubversePeer>(_cache.GetString(otherPeerKey) ?? "null"))
