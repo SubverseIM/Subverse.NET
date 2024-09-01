@@ -66,17 +66,6 @@ internal class PeerBootstrapService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_keyProvider.GetPublicKeyFile().Exists || !_keyProvider.GetPrivateKeyFile().Exists)
-        {
-            using var pgp = new PGP();
-            await pgp.GenerateKeyAsync(
-                publicKeyFileInfo: _keyProvider.GetPublicKeyFile(),
-                privateKeyFileInfo: _keyProvider.GetPrivateKeyFile(),
-                username: _peerService.GetSelf().Hostname,
-                password: _keyProvider.GetPrivateKeyPassPhrase()
-                );
-        }
-
         while (!stoppingToken.IsCancellationRequested)
         {
             foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())

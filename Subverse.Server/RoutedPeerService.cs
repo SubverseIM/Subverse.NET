@@ -67,6 +67,17 @@ namespace Subverse.Server
             _keyProvider = keyProvider;
             _stunUriProvider = stunUriProvider;
 
+            if (!_keyProvider.GetPublicKeyFile().Exists || !_keyProvider.GetPrivateKeyFile().Exists)
+            {
+                using var pgp = new PGP();
+                pgp.GenerateKey(
+                    publicKeyFileInfo: _keyProvider.GetPublicKeyFile(),
+                    privateKeyFileInfo: _keyProvider.GetPrivateKeyFile(),
+                    username: GetSelf().Hostname,
+                    password: _keyProvider.GetPrivateKeyPassPhrase()
+                    );
+            }
+
             _myEntityKeys = new EncryptionKeys(
                 _keyProvider.GetPublicKeyFile(),
                 _keyProvider.GetPrivateKeyFile(),
