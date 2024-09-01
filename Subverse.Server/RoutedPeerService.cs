@@ -154,11 +154,6 @@ namespace Subverse.Server
                     return newTaskFactory(key);
                 });
 
-            if (message is not null)
-            {
-                await RouteEntityAsync(connectionId);
-            }
-
             return connectionId;
         }
 
@@ -337,6 +332,8 @@ namespace Subverse.Server
 
             if (!_entityKeysSources.TryGetValue(peerId, out entityKeysSource))
             {
+                await RouteEntityAsync(peerId);
+
                 entityKeysSource = _entityKeysSources.GetOrAdd(peerId,
                     new TaskCompletionSource<EncryptionKeys>());
             }
@@ -344,7 +341,7 @@ namespace Subverse.Server
             return await entityKeysSource.Task;
         }
 
-        private Task ProcessEntityAsync(SubverseMessage message)
+        private async Task ProcessEntityAsync(SubverseMessage message)
         {
             CertificateCookie theirCookie;
             TaskCompletionSource<EncryptionKeys>? entityKeysSource;
@@ -356,8 +353,10 @@ namespace Subverse.Server
                 _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
             }
 
-            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
-            return Task.CompletedTask;
+            if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
+            {
+                await RouteEntityAsync(theirCookie.Key);
+            }
         }
 
         private async Task ProcessSipMessageAsync(SubverseMessage message)
