@@ -353,7 +353,7 @@ namespace Subverse.Server
                 _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
             }
 
-            if (!entityKeysSource.TrySetResult(theirCookie.KeyContainer)) { return; }
+            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
 
             await RouteEntityAsync(theirCookie.Key);
         }
