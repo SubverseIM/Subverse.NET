@@ -46,8 +46,7 @@ namespace Subverse.Server
 
             if (message is null)
             {
-                newQuicStream = await _quicConnection
-                    .OpenOutboundStreamAsync(QuicStreamType.Bidirectional, cancellationToken);
+                newQuicStream = await _quicConnection.AcceptInboundStreamAsync(cancellationToken);
 
                 newCts = new ();
                 newTask = RecieveAsync(newQuicStream, newCts.Token);
@@ -57,7 +56,8 @@ namespace Subverse.Server
             }
             else
             {
-                newQuicStream = await _quicConnection.AcceptInboundStreamAsync(cancellationToken);
+                newQuicStream = await _quicConnection.OpenOutboundStreamAsync(
+                    QuicStreamType.Bidirectional, cancellationToken);
 
                 newCts = new();
                 newTask = RecieveAsync(newQuicStream, newCts.Token);
