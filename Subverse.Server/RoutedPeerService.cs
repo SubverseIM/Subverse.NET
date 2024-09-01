@@ -232,15 +232,16 @@ namespace Subverse.Server
 
         public SubversePeer GetSelf()
         {
-            IPEndPoint remoteEndPoint = GetRemoteEndPointAsync().Result;
+            IPAddress localAddr = Dns.GetHostAddresses(Environment.MachineName)
+                .First(addr => addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
 
             return new SubversePeer(
                     _configHostname,
                     new UriBuilder()
                     {
                         Scheme = "subverse",
-                        Host = remoteEndPoint.Address.ToString(),
-                        Port = remoteEndPoint.Port,
+                        Host = localAddr.ToString(),
+                        Port = _localEndPoint?.Port ?? 30603,
                     }.ToString(),
                     DateTime.UtcNow
                     );
