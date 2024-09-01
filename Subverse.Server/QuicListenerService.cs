@@ -87,9 +87,7 @@ namespace Subverse.Server
                     {
                         ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
                         ServerCertificate = GetServerCertificate()
-                    },
-
-                    MaxInboundUnidirectionalStreams = 64,
+                    }
                 };
 
                 List<Task> listenTasks = new ();

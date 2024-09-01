@@ -112,6 +112,8 @@ namespace Subverse.Server
             SubversePeerId connectionId = await peerConnection
                 .CompleteHandshakeAsync(message, cancellationToken);
 
+            _logger.LogInformation($"Proxy of {connectionId} connected.");
+
             // Setup connection for routing & message events
             peerConnection.MessageReceived += Connection_MessageReceived;
 
