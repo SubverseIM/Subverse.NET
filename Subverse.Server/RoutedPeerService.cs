@@ -86,6 +86,8 @@ namespace Subverse.Server
             _entityKeysSources = new();
             ConnectionId = new(_myEntityKeys.PublicKey.GetFingerprint());
 
+            _logger.LogInformation(ConnectionId.ToString());
+
             _sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
             _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
             _sipTransport.AddSIPChannel(_sipChannel);
