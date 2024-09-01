@@ -105,7 +105,12 @@ internal class PeerBootstrapService : BackgroundService
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);
-                        _connectionMap.TryAdd(hostname, peerConnection);
+                        _connectionMap.AddOrUpdate(hostname, peerConnection, 
+                            (key, oldConnection) => 
+                            {
+                                oldConnection.Dispose();
+                                return peerConnection;
+                            });
 
                         await _peerService.OpenConnectionAsync(peerConnection, 
                             new SubverseMessage(
