@@ -12,6 +12,7 @@ using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
+
 using static Subverse.Models.SubverseMessage;
 
 internal class PeerBootstrapService : BackgroundService
@@ -85,7 +86,7 @@ internal class PeerBootstrapService : BackgroundService
                     stoppingToken.ThrowIfCancellationRequested();
 
                     // Try connection w/ 5 second timeout
-                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
+                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1.0)))
                     {
                         var quicConnection = await QuicConnection.ConnectAsync(
                             new QuicClientConnectionOptions
@@ -118,7 +119,7 @@ internal class PeerBootstrapService : BackgroundService
                 }
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(5));
+            await Task.Delay(TimeSpan.FromSeconds(1.0));
         }
 
         _http.Dispose();
