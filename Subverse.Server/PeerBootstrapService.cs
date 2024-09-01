@@ -97,7 +97,7 @@ internal class PeerBootstrapService : BackgroundService
 
                                 ClientAuthenticationOptions = new()
                                 {
-                                    ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
+                                    ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
                                     TargetHost = hostname,
                                 },
 
