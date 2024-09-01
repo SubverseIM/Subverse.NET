@@ -84,11 +84,11 @@ namespace Subverse.Server
                 });
 
             _ = _quicStreamMap.AddOrUpdate(recipient, newQuicStream,
-                       (key, oldQuicStream) =>
-                       {
-                           oldQuicStream.Dispose();
-                           return newQuicStream;
-                       });
+                (key, oldQuicStream) =>
+                {
+                    oldQuicStream.Dispose();
+                    return newQuicStream;
+                });
 
             if (message is not null) 
             {
@@ -142,6 +142,18 @@ namespace Subverse.Server
                 }
             }
             else { throw new NotSupportedException(); }
+        }
+
+        public bool HasValidConnectionTo(SubversePeerId peerId) 
+        {
+            if (_quicStreamMap.TryGetValue(peerId, out QuicStream? quicStream))
+            {
+                return !quicStream.ReadsClosed.IsCompleted;
+            }
+            else 
+            {
+                return false;
+            }
         }
 
         protected virtual void Dispose(bool disposing)

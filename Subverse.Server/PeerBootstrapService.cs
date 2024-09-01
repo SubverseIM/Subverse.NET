@@ -5,6 +5,7 @@ using Subverse.Abstractions;
 using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Server;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Mime;
@@ -19,13 +20,13 @@ internal class PeerBootstrapService : BackgroundService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<PeerBootstrapService> _logger;
-    private readonly IPgpKeyProvider _keyProvider;
     private readonly IPeerService _peerService;
 
+    private readonly ConcurrentDictionary<string, IPeerConnection> _connectionMap;
     private readonly string _configApiUrl;
     private readonly HttpClient _http;
 
-    public PeerBootstrapService(IConfiguration configuration, ILogger<PeerBootstrapService> logger, IPgpKeyProvider keyProvider, IPeerService hubService)
+    public PeerBootstrapService(IConfiguration configuration, ILogger<PeerBootstrapService> logger, IPeerService hubService)
     {
         _configuration = configuration;
 
@@ -33,10 +34,11 @@ internal class PeerBootstrapService : BackgroundService
             throw new ArgumentNullException(message: "Missing required ConnectionString from config: \"BootstrapApi\"", paramName: "configApiUrl");
 
         _logger = logger;
-        _keyProvider = keyProvider;
         _peerService = hubService;
 
         _http = new HttpClient() { BaseAddress = new(_configApiUrl) };
+
+        _connectionMap = new ();
     }
 
     private async Task<IEnumerable<(string hostname, IPEndPoint remoteEndpoint)>> BootstrapSelfAsync()
@@ -74,6 +76,12 @@ internal class PeerBootstrapService : BackgroundService
                 {
                     stoppingToken.ThrowIfCancellationRequested();
 
+                    if (!_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) || 
+                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
+                    {
+                        continue;
+                    }
+
                     // Try connection w/ 5 second timeout
                     using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
                     {
@@ -95,6 +103,8 @@ internal class PeerBootstrapService : BackgroundService
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);
+                        _connectionMap.TryAdd(hostname, peerConnection);
+
                         await _peerService.OpenConnectionAsync(peerConnection, 
                             new SubverseMessage(
                                 _peerService.ConnectionId, 

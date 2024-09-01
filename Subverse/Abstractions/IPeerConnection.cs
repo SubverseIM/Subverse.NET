@@ -10,5 +10,7 @@ namespace Subverse.Abstractions
         Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken);
 
         void SendMessage(SubverseMessage message);
+
+        bool HasValidConnectionTo(SubversePeerId peerId);
     }
 }
