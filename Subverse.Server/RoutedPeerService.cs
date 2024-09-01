@@ -41,7 +41,6 @@ namespace Subverse.Server
         private readonly SIPTransport _sipTransport;
 
         private IPEndPoint? _localEndPoint;
-        private SubversePeer? _cachedSelf;
 
         public SubversePeerId ConnectionId { get; }
 
@@ -233,21 +232,18 @@ namespace Subverse.Server
 
         public SubversePeer GetSelf()
         {
-            lock (this)
-            {
-                IPEndPoint remoteEndPoint = GetRemoteEndPointAsync().Result;
+            IPEndPoint remoteEndPoint = GetRemoteEndPointAsync().Result;
 
-                return _cachedSelf = new SubversePeer(
-                        _configHostname,
-                        new UriBuilder()
-                        {
-                            Scheme = "subverse",
-                            Host = remoteEndPoint.Address.ToString(),
-                            Port = remoteEndPoint.Port,
-                        }.ToString(),
-                        DateTime.UtcNow
-                        );
-            }
+            return new SubversePeer(
+                    _configHostname,
+                    new UriBuilder()
+                    {
+                        Scheme = "subverse",
+                        Host = remoteEndPoint.Address.ToString(),
+                        Port = remoteEndPoint.Port,
+                    }.ToString(),
+                    DateTime.UtcNow
+                    );
         }
 
         public void SetLocalEndPoint(IPEndPoint localEndPoint)
