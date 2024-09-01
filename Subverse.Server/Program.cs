@@ -33,6 +33,7 @@ builder.Services.AddSingleton<IMessageQueue<string>, PersistentMessageQueue>();
 // Main
 builder.Configuration.AddEnvironmentVariables("Subverse_");
 builder.Services.AddHostedService<QuicListenerService>();
+builder.Services.AddHostedService<PeerBootstrapService>();
 
 // Windows-specific
 builder.Services.AddWindowsService(options => 
