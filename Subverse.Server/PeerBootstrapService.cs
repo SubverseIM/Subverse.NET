@@ -91,7 +91,7 @@ internal class PeerBootstrapService : BackgroundService
                                     TargetHost = hostname,
                                 },
 
-                                MaxInboundBidirectionalStreams = 64
+                                MaxInboundUnidirectionalStreams = 64
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);

@@ -89,7 +89,7 @@ namespace Subverse.Server
                         ServerCertificate = GetServerCertificate()
                     },
 
-                    MaxInboundBidirectionalStreams = 64,
+                    MaxInboundUnidirectionalStreams = 64,
                 };
 
                 List<Task> listenTasks = new ();

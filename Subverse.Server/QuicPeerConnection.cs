@@ -41,54 +41,48 @@ namespace Subverse.Server
             QuicStream newQuicStream;
             SubversePeerId recipient;
 
-            CancellationTokenSource newCts;
-            Task newTask;
             if (message is null)
             {
                 newQuicStream = await _quicConnection
                     .AcceptInboundStreamAsync(cancellationToken);
 
-                newCts = new CancellationTokenSource();
-                newTask = RecieveAsync(newQuicStream, newCts.Token);
+                CancellationTokenSource newCts = new ();
+                Task newTask = RecieveAsync(newQuicStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task;
                 recipient = initialMessage.Recipient;
-            }
-            else
-            {
-                newQuicStream = await _quicConnection.OpenOutboundStreamAsync(
-                    QuicStreamType.Bidirectional, cancellationToken);
 
-                newCts = new CancellationTokenSource();
-                newTask = RecieveAsync(newQuicStream, newCts.Token);
-
-                recipient = message.Recipient;
-            }
-
-            _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                _ = _ctsMap.AddOrUpdate(recipient, newCts,
                     (key, oldCts) =>
                     {
                         oldCts.Dispose();
                         return newCts;
                     });
 
-            _ = _taskMap.AddOrUpdate(recipient, newTask,
-                (key, oldTask) =>
-                {
-                    try
+                _ = _taskMap.AddOrUpdate(recipient, newTask,
+                    (key, oldTask) =>
                     {
-                        oldTask.Wait();
-                    }
-                    catch (OperationCanceledException) { }
-                    return newTask;
-                });
-
-            _ = _quicStreamMap.AddOrUpdate(recipient, newQuicStream,
-                    (key, oldQuicStream) =>
-                    {
-                        oldQuicStream.Dispose();
-                        return newQuicStream;
+                        try
+                        {
+                            oldTask.Wait();
+                        }
+                        catch (OperationCanceledException) { }
+                        return newTask;
                     });
+
+                _ = _quicStreamMap.AddOrUpdate(recipient, newQuicStream,
+                        (key, oldQuicStream) =>
+                        {
+                            oldQuicStream.Dispose();
+                            return newQuicStream;
+                        });
+            }
+            else
+            {
+                newQuicStream = await _quicConnection.OpenOutboundStreamAsync(
+                    QuicStreamType.Unidirectional, cancellationToken);
+                recipient = message.Recipient;
+            }
 
             if (message is not null) 
             {
@@ -107,6 +101,8 @@ namespace Subverse.Server
         {
             return Task.Run(() =>
             {
+                if (!quicStream.CanRead) return;
+
                 using (var bsonReader = new BsonDataReader(quicStream) { CloseInput = false, SupportMultipleContent = true })
                 {
                     var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new PeerIdConverter() } };
@@ -128,12 +124,15 @@ namespace Subverse.Server
         public void SendMessage(SubverseMessage message)
         {
             QuicStream quicStream = _quicStreamMap[message.Recipient];
-            lock (quicStream)
+            if (quicStream.CanWrite)
             {
-                using (var bsonWriter = new BsonDataWriter(quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
+                lock (quicStream)
                 {
-                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new PeerIdConverter() } };
-                    serializer.Serialize(bsonWriter, message);
+                    using (var bsonWriter = new BsonDataWriter(quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
+                    {
+                        var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new PeerIdConverter() } };
+                        serializer.Serialize(bsonWriter, message);
+                    }
                 }
             }
         }
