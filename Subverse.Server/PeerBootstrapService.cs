@@ -75,7 +75,7 @@ internal class PeerBootstrapService : BackgroundService
                     stoppingToken.ThrowIfCancellationRequested();
 
                     // Try connection w/ 5 second timeout
-                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1.0)))
+                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
                     {
                         var quicConnection = await QuicConnection.ConnectAsync(
                             new QuicClientConnectionOptions
