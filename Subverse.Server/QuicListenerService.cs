@@ -87,7 +87,9 @@ namespace Subverse.Server
                     {
                         ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
                         ServerCertificate = GetServerCertificate()
-                    }
+                    },
+
+                    KeepAliveInterval = TimeSpan.FromSeconds(1.0),
                 };
 
                 List<Task> listenTasks = new ();
