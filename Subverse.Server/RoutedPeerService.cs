@@ -354,7 +354,6 @@ namespace Subverse.Server
             }
 
             entityKeysSource.TrySetResult(theirCookie.KeyContainer);
-
             await RouteEntityAsync(theirCookie.Key);
         }
 
