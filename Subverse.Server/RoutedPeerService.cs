@@ -111,11 +111,9 @@ namespace Subverse.Server
         {
             SubversePeerId connectionId = await peerConnection
                 .CompleteHandshakeAsync(message, cancellationToken);
-            if (message is null)
-            {
-                // Setup connection for routing & message events
-                peerConnection.MessageReceived += Connection_MessageReceived;
-            }
+
+            // Setup connection for routing & message events
+            peerConnection.MessageReceived += Connection_MessageReceived;
 
             HashSet<IPeerConnection> newConnections = [peerConnection];
             _connectionMap.AddOrUpdate(connectionId, newConnections,

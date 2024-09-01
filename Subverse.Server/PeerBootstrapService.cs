@@ -95,10 +95,11 @@ internal class PeerBootstrapService : BackgroundService
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);
-                        await _peerService.OpenConnectionAsync(peerConnection,
-                            new SubverseMessage(_peerService.ConnectionId, 0, ProtocolCode.Command, []),
-                            cts.Token
-                            );
+                        await _peerService.OpenConnectionAsync(peerConnection, 
+                            new SubverseMessage(
+                                _peerService.ConnectionId, 
+                                0, ProtocolCode.Command, []), 
+                            cts.Token);
                     }
                 }
                 catch (OperationCanceledException) { }
