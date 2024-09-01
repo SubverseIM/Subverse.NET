@@ -89,9 +89,7 @@ internal class PeerBootstrapService : BackgroundService
                                 {
                                     ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
                                     TargetHost = hostname,
-                                },
-
-                                MaxInboundUnidirectionalStreams = 64
+                                }
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);
