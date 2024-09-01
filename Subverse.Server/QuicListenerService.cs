@@ -16,7 +16,7 @@ namespace Subverse.Server
         private readonly IConfiguration _configuration;
         private readonly IHostEnvironment _environment;
         private readonly ILogger<QuicListenerService> _logger;
-        private readonly IPeerService _hubService;
+        private readonly IPeerService _peerService;
 
         private QuicListener? _listener;
 
@@ -25,7 +25,7 @@ namespace Subverse.Server
             _configuration = configuration;
             _environment = environment;
             _logger = logger;
-            _hubService = hubService;
+            _peerService = hubService;
         }
 
         private X509Certificate GetServerCertificate()
@@ -44,7 +44,7 @@ namespace Subverse.Server
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    connectionIds.Add(await _hubService.OpenConnectionAsync(
+                    connectionIds.Add(await _peerService.OpenConnectionAsync(
                         peerConnection, null, cancellationToken));
                 }
             }
@@ -55,7 +55,7 @@ namespace Subverse.Server
 
             foreach (var connectionId in connectionIds)
             {
-                await _hubService.CloseConnectionAsync(
+                await _peerService.CloseConnectionAsync(
                     peerConnection, connectionId, default
                     );
             }
@@ -92,8 +92,8 @@ namespace Subverse.Server
                         ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
                     });
 
-                _hubService.SetLocalEndPoint(_listener.LocalEndPoint);
-                _hubService.GetSelf();
+                _peerService.SetLocalEndPoint(_listener.LocalEndPoint);
+                _peerService.GetSelf();
 
                 var listenTasks = new List<Task>();
                 try
