@@ -1,24 +1,27 @@
-﻿using Alethic.Kademlia;
-using Hangfire;
+﻿using Hangfire;
 using PgpCore;
+using SIPSorcery.Net;
+using SIPSorcery.SIP;
 using Subverse.Abstractions;
 using Subverse.Exceptions;
 using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Stun;
+using Subverse.Types;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Text;
 using static Subverse.Models.SubverseMessage;
 
 namespace Subverse.Server
 {
-    internal class RoutedHubService : IPeerService
+    internal class RoutedPeerService : IPeerService
     {
         private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
         private const int DEFAULT_CONFIG_START_TTL = 99;
 
         private readonly IConfiguration _configuration;
-        private readonly ILogger<RoutedHubService> _logger;
+        private readonly ILogger<RoutedPeerService> _logger;
         private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
         private readonly IStunUriProvider _stunUriProvider;
@@ -26,21 +29,25 @@ namespace Subverse.Server
         private readonly string _configHostname;
         private readonly int _configStartTTL;
 
-        private readonly ConcurrentDictionary<KNodeId160, Task> _taskMap;
-        private readonly ConcurrentDictionary<KNodeId160, CancellationTokenSource> _ctsMap;
-        private readonly ConcurrentDictionary<KNodeId160, HashSet<IPeerConnection>> _connectionMap;
+        private readonly ConcurrentDictionary<SubversePeerId, Task> _taskMap;
+        private readonly ConcurrentDictionary<SubversePeerId, CancellationTokenSource> _ctsMap;
+        private readonly ConcurrentDictionary<SubversePeerId, HashSet<IPeerConnection>> _connectionMap;
+        private readonly ConcurrentDictionary<string, string> _callerMap;
 
-        private readonly ConcurrentDictionary<KNodeId160, TaskCompletionSource<EncryptionKeys>> _entityKeysSources;
+        private readonly ConcurrentDictionary<SubversePeerId, TaskCompletionSource<EncryptionKeys>> _entityKeysSources;
         private readonly EncryptionKeys _myEntityKeys;
+
+        private readonly SIPUDPChannel _sipChannel;
+        private readonly SIPTransport _sipTransport;
 
         private IPEndPoint? _localEndPoint;
         private SubversePeer? _cachedSelf;
 
-        public KNodeId160 ConnectionId { get; }
+        public SubversePeerId ConnectionId { get; }
 
-        public RoutedHubService(
+        public RoutedPeerService(
             IConfiguration configuration,
-            ILogger<RoutedHubService> logger,
+            ILogger<RoutedPeerService> logger,
             IMessageQueue<string> messageQueue,
             IPgpKeyProvider keyProvider,
             IStunUriProvider stunUriProvider)
@@ -68,9 +75,17 @@ namespace Subverse.Server
             _entityKeysSources = new();
             ConnectionId = new(_myEntityKeys.PublicKey.GetFingerprint());
 
-            _taskMap = new ConcurrentDictionary<KNodeId160, Task>();
-            _ctsMap = new ConcurrentDictionary<KNodeId160, CancellationTokenSource>();
-            _connectionMap = new ConcurrentDictionary<KNodeId160, HashSet<IPeerConnection>>();
+            _sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
+            _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
+            _sipTransport.AddSIPChannel(_sipChannel);
+
+            _sipTransport.SIPTransportRequestReceived += SipRequestReceived;
+            _sipTransport.SIPTransportResponseReceived += SipResponseReceived;
+
+            _taskMap = new ConcurrentDictionary<SubversePeerId, Task>();
+            _ctsMap = new ConcurrentDictionary<SubversePeerId, CancellationTokenSource>();
+            _connectionMap = new ConcurrentDictionary<SubversePeerId, HashSet<IPeerConnection>>();
+            _callerMap = new ConcurrentDictionary<string, string>();
 
             // Schedule queue flushing job
             RecurringJob.AddOrUpdate(
@@ -79,9 +94,9 @@ namespace Subverse.Server
                 Cron.Minutely);
         }
 
-        public async Task<KNodeId160> OpenConnectionAsync(IPeerConnection peerConnection, SubverseMessage? message, CancellationToken cancellationToken)
+        public async Task<SubversePeerId> OpenConnectionAsync(IPeerConnection peerConnection, SubverseMessage? message, CancellationToken cancellationToken)
         {
-            KNodeId160 connectionId = await peerConnection
+            SubversePeerId connectionId = await peerConnection
                 .CompleteHandshakeAsync(message, cancellationToken);
             if (message is null)
             {
@@ -110,7 +125,7 @@ namespace Subverse.Server
                     return newCts;
                 });
 
-            Func<KNodeId160, Task> newTaskFactory = (key) =>
+            Func<SubversePeerId, Task> newTaskFactory = (key) =>
                 Task.Run(() => FlushMessagesAsync(key, newCts.Token));
 
             _ = _taskMap.AddOrUpdate(connectionId, newTaskFactory, (key, oldTask) =>
@@ -131,7 +146,7 @@ namespace Subverse.Server
             return connectionId;
         }
 
-        public async Task CloseConnectionAsync(IPeerConnection connection, KNodeId160 connectionId, CancellationToken cancellationToken)
+        public async Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken)
         {
             _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
             storedCts?.Dispose();
@@ -164,7 +179,6 @@ namespace Subverse.Server
                 }
             }
 
-
             HashSet<IPeerConnection> allConnections =
                 _connectionMap.Values
                 .SelectMany(x => x)
@@ -176,7 +190,7 @@ namespace Subverse.Server
             }
         }
 
-        public async Task FlushMessagesAsync(KNodeId160 connectionId, CancellationToken cancellationToken)
+        public async Task FlushMessagesAsync(SubversePeerId connectionId, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
@@ -210,7 +224,7 @@ namespace Subverse.Server
             {
                 if (_cachedSelf is null)
                 {
-                    IPEndPoint serviceEndPoint = GetRemoteEndPointAsync(30603).Result;
+                    IPEndPoint serviceEndPoint = GetRemoteEndPointAsync().Result;
 
                     return _cachedSelf = new SubversePeer(
                             _configHostname,
@@ -245,7 +259,7 @@ namespace Subverse.Server
                 var stunClient = new StunClientUdp();
 
                 StunMessage? stunResponse = null;
-                await foreach (var uri in _stunUriProvider.GetAvailableAsync().Take(8))
+                await foreach (var uri in _stunUriProvider.GetAvailableAsync())
                 {
                     stunResponse = await stunClient.SendRequestAsync(new StunMessage([]),
                             localPortNum ?? _localEndPoint?.Port ?? 0, uri ?? string.Empty);
@@ -287,7 +301,38 @@ namespace Subverse.Server
                 case ProtocolCode.Entity:
                     await ProcessEntityAsync(message);
                     break;
+                case ProtocolCode.Application:
+                    await ProcessSipMessageAsync(message);
+                    break;
             }
+        }
+
+        private async Task RouteEntityAsync(SubversePeerId peerId) 
+        {
+            LocalCertificateCookie myCookie = new LocalCertificateCookie(
+                _keyProvider.GetPublicKeyFile().OpenRead(),
+                _myEntityKeys, GetSelf() with { DhtUri = null });
+
+            await RouteMessageAsync(
+                new SubverseMessage(
+                    peerId, DEFAULT_CONFIG_START_TTL,
+                    ProtocolCode.Entity, myCookie.ToBlobBytes()
+                ));
+        }
+
+        async Task<EncryptionKeys> GetEntityKeysAsync(SubversePeerId peerId)
+        {
+            TaskCompletionSource<EncryptionKeys>? entityKeysSource;
+
+            if (!_entityKeysSources.TryGetValue(peerId, out entityKeysSource))
+            {
+                await RouteEntityAsync(peerId);
+
+                entityKeysSource = _entityKeysSources.GetOrAdd(peerId,
+                    new TaskCompletionSource<EncryptionKeys>());
+            }
+
+            return await entityKeysSource.Task;
         }
 
         private async Task ProcessEntityAsync(SubverseMessage message)
@@ -304,15 +349,84 @@ namespace Subverse.Server
 
             if (!entityKeysSource.TrySetResult(theirCookie.KeyContainer)) { return; }
 
-            LocalCertificateCookie myCookie = new LocalCertificateCookie(
-                _keyProvider.GetPublicKeyFile().OpenRead(),
-                _myEntityKeys, GetSelf() with { DhtUri = null });
+            await RouteEntityAsync(theirCookie.Key);
+        }
 
-            await RouteMessageAsync(
-                new SubverseMessage(
-                    theirCookie.Key, DEFAULT_CONFIG_START_TTL,
-                    ProtocolCode.Entity, myCookie.ToBlobBytes()
-                ));
+        private async Task ProcessSipMessageAsync(SubverseMessage message)
+        {
+            byte[] messageBytes;
+            using (var pgp = new PGP(_myEntityKeys))
+            using (var bufferStream = new MemoryStream(message.Content))
+            using (var decryptStream = new MemoryStream())
+            {
+                await pgp.DecryptAsync(bufferStream, decryptStream);
+                messageBytes = decryptStream.ToArray();
+            }
+
+            SIPRequest? request = null;
+            try
+            {
+                request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(messageBytes));
+                request.Header.From.FromURI.Host = "subverse";
+
+                messageBytes = request.GetBytes();
+
+                string fromEntityStr = request.Header.From.FromURI.User;
+                _callerMap.TryAdd(request.Header.CallId, fromEntityStr);
+            }
+            catch (SIPValidationException) { }
+
+            await _sipTransport.SendRawAsync(
+                _sipChannel.ListeningSIPEndPoint,
+                new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5067),
+                messageBytes
+                );
+        }
+
+        private async Task SipRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
+        {
+            string toEntityStr = sipRequest.Header.To.ToURI.User;
+            SubversePeerId toEntityId = SubversePeerId.FromString(toEntityStr);
+
+            EncryptionKeys entityKeys = await GetEntityKeysAsync(toEntityId);
+            using (var pgp = new PGP(entityKeys))
+            using (var bufferStream = new MemoryStream(sipRequest.GetBytes()))
+            using (var encryptStream = new MemoryStream())
+            {
+                await pgp.EncryptAsync(bufferStream, encryptStream);
+
+                await RouteMessageAsync(
+                    new SubverseMessage(toEntityId,
+                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
+                        encryptStream.ToArray()
+                        ));
+            }
+        }
+
+        private async Task SipResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPResponse sipResponse)
+        {
+            if (!_callerMap.TryGetValue(
+                sipResponse.Header.CallId,
+                out string? fromEntityStr))
+            {
+                return;
+            }
+
+            SubversePeerId fromEntityId = SubversePeerId.FromString(fromEntityStr);
+            EncryptionKeys entityKeys = await GetEntityKeysAsync(fromEntityId);
+
+            using (var pgp = new PGP(entityKeys))
+            using (var bufferStream = new MemoryStream(sipResponse.GetBytes()))
+            using (var encryptStream = new MemoryStream())
+            {
+                await pgp.EncryptAsync(bufferStream, encryptStream);
+
+                await RouteMessageAsync(
+                    new SubverseMessage(fromEntityId,
+                        DEFAULT_CONFIG_START_TTL, ProtocolCode.Application,
+                        encryptStream.ToArray()
+                        ));
+            }
         }
 
         private async Task RouteMessageAsync(SubverseMessage message)

@@ -1,5 +1,4 @@
-﻿using Cogito.IO;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using PgpCore;
 using Subverse.Models;
 using System.Text;
@@ -18,14 +17,19 @@ namespace Subverse.Implementations
 
         public override byte[] ToBlobBytes()
         {
-            publicKeyStream.Position = 0;
-            List<byte> cookieBytesFull = publicKeyStream.ReadAllBytes().ToList();
+            List<byte> cookieBytesFull = new();
+            using (var memoryStream = new MemoryStream())
+            {
+                publicKeyStream.Position = 0;
+                publicKeyStream.CopyTo(memoryStream);
+                cookieBytesFull.AddRange(memoryStream.ToArray());
+            }
 
             string cookieBodyJsonString = JsonConvert.SerializeObject(Body,
                 new JsonSerializerSettings
                 {
                     TypeNameHandling = TypeNameHandling.Objects,
-                    Converters = { new NodeIdConverter() }
+                    Converters = { new PeerIdConverter() }
                 });
             byte[] cookieBodyUtf8Bytes = Encoding.UTF8.GetBytes(cookieBodyJsonString);
             using (var inputStreamBody = new MemoryStream(cookieBodyUtf8Bytes))

@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
-using Subverse.Implementations;
 using Subverse.Models;
 
 namespace Subverse.Bootstrapper.Controllers
@@ -10,55 +9,79 @@ namespace Subverse.Bootstrapper.Controllers
     [Route("[controller]")]
     public class SubverseController : ControllerBase
     {
+        private const string CACHE_KNOWN_PEERS_KEY = "knownPeers";
+
+        private const string CACHE_LOCK_KEY = "__lock__";
+        private const int CACHE_LOCK_EXPIRE_MS = 70;
+        private const int CACHE_LOCK_WAIT_MS = CACHE_LOCK_EXPIRE_MS + CACHE_LOCK_EXPIRE_MS / 2;
+
         private const int DEFAULT_CONFIG_TOPN = 5;
 
         private readonly int _configTopN;
         private readonly IDistributedCache _cache;
         private readonly ILogger<SubverseController> _logger;
-        private readonly string[] _keys;
-
-        private static string[]? GetWhitelistedKeys(IConfiguration configuration)
-        {
-            return configuration.GetSection("Bootstrapper")?
-                .GetSection("Whitelist")?
-                .Get<string[]>();
-        }
 
         public SubverseController(IConfiguration configuration, IDistributedCache cache, ILogger<SubverseController> logger)
         {
             _configTopN = configuration.GetSection("Bootstrapper")?.GetValue<int?>("TopNListLength") ?? DEFAULT_CONFIG_TOPN;
             _cache = cache;
             _logger = logger;
+        }
 
-            _keys = GetWhitelistedKeys(configuration) ?? [];
+        private async Task<IEnumerable<T>> AppendWithLockAsync<T>(string key, T value, CancellationToken cancellationToken)
+        {
+            string lockKey = $"{CACHE_LOCK_KEY}{key}";
+            string? lockValue = await _cache.GetStringAsync($"{CACHE_LOCK_KEY}{key}", cancellationToken);
+
+            // wait for lock to expire
+            while (lockValue is not null) 
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(CACHE_LOCK_WAIT_MS));
+                lockValue = await _cache.GetStringAsync(lockKey, cancellationToken);
+            }
+
+            await _cache.SetStringAsync($"{CACHE_LOCK_KEY}{key}", Guid.NewGuid().ToString(), 
+                new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMilliseconds(CACHE_LOCK_EXPIRE_MS) },
+                cancellationToken);
+
+            string? jsonString = await _cache.GetStringAsync(key, cancellationToken);
+            HashSet<T> values = JsonConvert.DeserializeObject<HashSet<T>>(jsonString ?? "[]") ?? [];
+            values.Add(value);
+
+            await _cache.SetStringAsync(key, JsonConvert.SerializeObject(values));
+            return values;
         }
 
         [HttpPost("ping")]
         [Consumes("application/octet-stream")]
         [Produces("application/json")]
-        public SubversePeer[] ExchangeRecentlySeenPeerInfo()
+        public async Task<SubversePeer[]> ExchangeRecentlySeenPeerInfoAsync(CancellationToken cancellationToken)
         {
-            byte[] blobBytes;
-            using (var memoryStream = new MemoryStream())
+            SubversePeer? thisPeer;
+            using (var streamReader = new StreamReader(Request.Body))
+            using (var jsonReader = new JsonTextReader(streamReader))
             {
-                Request.Body.CopyToAsync(memoryStream).Wait();
-                blobBytes = memoryStream.ToArray();
+                var serializer = new JsonSerializer();
+                thisPeer = serializer.Deserialize<SubversePeer?>(jsonReader);
             }
 
-            var certifiedCookie = CertificateCookie.FromBlobBytes(blobBytes) as CertificateCookie;
-            if (certifiedCookie?.Body is not null && _keys.Contains(certifiedCookie.Key.ToString()))
+            if (thisPeer is not null)
             {
-                _logger.LogInformation($"Accepting request from claimed identity: {certifiedCookie.Key}");
+                _logger.LogInformation($"Accepting request from host: {thisPeer.Hostname}");
 
-                var cookieKey = certifiedCookie.Key.ToString();
-                var cookieBody = certifiedCookie.Body with { MostRecentlySeenOn = DateTime.UtcNow };
-                var jsonValue = JsonConvert.SerializeObject(cookieBody);
+                var thisPeerKey = thisPeer.Hostname;
+                var thisPeerJsonStr = JsonConvert.SerializeObject(
+                    thisPeer with { MostRecentlySeenOn = DateTime.UtcNow }
+                    );
 
-                _cache.SetString(cookieKey, jsonValue);
+                _cache.SetString(thisPeerKey, thisPeerJsonStr);
 
-                return _keys
-                    .Where(key => key != cookieKey)
-                    .Select(key => JsonConvert.DeserializeObject<SubversePeer>(_cache.GetString(key) ?? "null"))
+                var allPeerKeys = await AppendWithLockAsync(
+                    CACHE_KNOWN_PEERS_KEY, thisPeerKey, cancellationToken
+                    );
+                return allPeerKeys
+                    .Where(otherPeerKey => otherPeerKey != thisPeerKey)
+                    .Select(otherPeerKey => JsonConvert.DeserializeObject<SubversePeer>(_cache.GetString(otherPeerKey) ?? "null"))
                     .OrderByDescending(x => x?.MostRecentlySeenOn ?? DateTime.MinValue)
                     .Where(x => x is not null)
                     .Cast<SubversePeer>()
@@ -67,7 +90,7 @@ namespace Subverse.Bootstrapper.Controllers
             }
             else
             {
-                _logger.LogInformation($"Denying request from claimed identity: {certifiedCookie?.Key.ToString() ?? "<NONE>"}");
+                _logger.LogInformation($"Denying request from unspecified host.");
                 return [];
             }
         }

@@ -1,5 +1,5 @@
-﻿using Alethic.Kademlia;
-using Subverse.Models;
+﻿using Subverse.Models;
+using Subverse.Types;
 
 namespace Subverse.Abstractions
 {
@@ -7,7 +7,7 @@ namespace Subverse.Abstractions
     {
         event EventHandler<MessageReceivedEventArgs> MessageReceived;
 
-        Task<KNodeId160> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken);
+        Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken);
 
         void SendMessage(SubverseMessage message);
     }

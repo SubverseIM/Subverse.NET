@@ -1,15 +1,8 @@
-using Alethic.Kademlia;
-using Alethic.Kademlia.InMemory;
-using Alethic.Kademlia.Json;
-using Alethic.Kademlia.Network.Udp;
-
 using Hangfire;
 using Hangfire.MemoryStorage;
 
 using Subverse.Abstractions;
 using Subverse.Server;
-
-using System.Net;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -34,7 +27,7 @@ builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
 builder.Services.AddSingleton<IStunUriProvider, AlwaysOnlineStunUriProvider>();
 
 // Mission-critical
-builder.Services.AddSingleton<IPeerService, RoutedHubService>();
+builder.Services.AddSingleton<IPeerService, RoutedPeerService>();
 builder.Services.AddSingleton<IMessageQueue<string>, PersistentMessageQueue>();
 
 // Main

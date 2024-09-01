@@ -1,8 +1,8 @@
-﻿using Alethic.Kademlia;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Bson;
 using Subverse.Abstractions;
 using Subverse.Models;
+using Subverse.Types;
 using System.Collections.Concurrent;
 using System.Net.Quic;
 
@@ -14,9 +14,9 @@ namespace Subverse.Implementations
 
         private readonly QuicConnection _quicConnection;
 
-        private readonly ConcurrentDictionary<KNodeId160, QuicStream> _quicStreamMap;
-        private readonly ConcurrentDictionary<KNodeId160, CancellationTokenSource> _ctsMap;
-        private readonly ConcurrentDictionary<KNodeId160, Task> _taskMap;
+        private readonly ConcurrentDictionary<SubversePeerId, QuicStream> _quicStreamMap;
+        private readonly ConcurrentDictionary<SubversePeerId, CancellationTokenSource> _ctsMap;
+        private readonly ConcurrentDictionary<SubversePeerId, Task> _taskMap;
 
         private readonly TaskCompletionSource<SubverseMessage> _initialMessageSource;
 
@@ -35,10 +35,10 @@ namespace Subverse.Implementations
             _initialMessageSource = new();
         }
 
-        public async Task<KNodeId160> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
+        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
             QuicStream newQuicStream;
-            KNodeId160 recipient;
+            SubversePeerId recipient;
             if (message is null)
             {
                 newQuicStream = await _quicConnection
@@ -84,7 +84,7 @@ namespace Subverse.Implementations
 
             if (message is not null) 
             {
-                await SendMessageAsync(message, cancellationToken);
+                SendMessage(message);
             }
 
             return recipient;
@@ -101,7 +101,7 @@ namespace Subverse.Implementations
             {
                 using (var bsonReader = new BsonDataReader(quicStream) { CloseInput = false, SupportMultipleContent = true })
                 {
-                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new NodeIdConverter() } };
+                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new PeerIdConverter() } };
                     while (!cancellationToken.IsCancellationRequested && !quicStream.WritesClosed.IsCompleted)
                     {
                         var message = serializer.Deserialize<SubverseMessage>(bsonReader)
@@ -124,7 +124,7 @@ namespace Subverse.Implementations
             {
                 using (var bsonWriter = new BsonDataWriter(quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
                 {
-                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new NodeIdConverter() } };
+                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new PeerIdConverter() } };
                     serializer.Serialize(bsonWriter, message);
                 }
             }

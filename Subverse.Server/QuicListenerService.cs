@@ -1,14 +1,11 @@
-using Alethic.Kademlia;
 using Subverse.Abstractions;
 using Subverse.Implementations;
-using Subverse.Models;
+using Subverse.Types;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
-using System.Text;
-using static Subverse.Models.SubverseMessage;
 
 namespace Subverse.Server
 {
@@ -42,7 +39,7 @@ namespace Subverse.Server
         private async Task ListenConnectionsAsync(QuicConnection quicConnection, CancellationToken cancellationToken)
         {
             var peerConnection = new QuicPeerConnection(quicConnection);
-            List<KNodeId160> connectionIds = new();
+            List<SubversePeerId> connectionIds = new();
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
@@ -87,16 +84,16 @@ namespace Subverse.Server
                     MaxInboundUnidirectionalStreams = 64,
                 };
 
-                _hubService.SetLocalEndPoint(new IPEndPoint(IPAddress.Any, 30603));
-                _hubService.GetSelf();
-
                 _listener = await QuicListener.ListenAsync(
                     new QuicListenerOptions
                     {
-                        ListenEndPoint = new IPEndPoint(IPAddress.Any, 30603),
+                        ListenEndPoint = new IPEndPoint(IPAddress.Any, 0),
                         ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
                         ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
                     });
+
+                _hubService.SetLocalEndPoint(_listener.LocalEndPoint);
+                _hubService.GetSelf();
 
                 var listenTasks = new List<Task>();
                 try

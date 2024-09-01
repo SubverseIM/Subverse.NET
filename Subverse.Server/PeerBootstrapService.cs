@@ -1,4 +1,5 @@
 ﻿
+using Newtonsoft.Json;
 using PgpCore;
 using Subverse.Abstractions;
 using Subverse.Implementations;
@@ -6,22 +7,24 @@ using Subverse.Models;
 using Subverse.Server;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Mime;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Text;
 using static Subverse.Models.SubverseMessage;
 
-internal class HubBootstrapService : BackgroundService
+internal class PeerBootstrapService : BackgroundService
 {
     private readonly IConfiguration _configuration;
-    private readonly ILogger<HubBootstrapService> _logger;
+    private readonly ILogger<PeerBootstrapService> _logger;
     private readonly IPgpKeyProvider _keyProvider;
-    private readonly IPeerService _hubService;
+    private readonly IPeerService _peerService;
 
     private readonly string _configApiUrl;
     private readonly HttpClient _http;
 
-    public HubBootstrapService(IConfiguration configuration, ILogger<HubBootstrapService> logger, IPgpKeyProvider keyProvider, IPeerService hubService)
+    public PeerBootstrapService(IConfiguration configuration, ILogger<PeerBootstrapService> logger, IPgpKeyProvider keyProvider, IPeerService hubService)
     {
         _configuration = configuration;
 
@@ -30,37 +33,34 @@ internal class HubBootstrapService : BackgroundService
 
         _logger = logger;
         _keyProvider = keyProvider;
-        _hubService = hubService;
+        _peerService = hubService;
 
         _http = new HttpClient() { BaseAddress = new(_configApiUrl) };
     }
 
     private async Task<IEnumerable<(string hostname, IPEndPoint remoteEndpoint)>> BootstrapSelfAsync()
     {
-        using (var publicKeyStream = _keyProvider.GetPublicKeyFile().OpenRead())
-        {
-            var privateKeyContainer = new EncryptionKeys(_keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
-            var certifiedSelf = new LocalCertificateCookie(publicKeyStream, privateKeyContainer, _hubService.GetSelf());
+        var selfJsonStr = JsonConvert.SerializeObject(_peerService.GetSelf());
+        var selfJsonContent = new StringContent(selfJsonStr, Encoding.UTF8, MediaTypeNames.Application.Json);
 
-            using var apiResponseMessage = await _http.PostAsync("ping", new ByteArrayContent(certifiedSelf.ToBlobBytes()));
-            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
+        using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
+        var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
 
-            var validPeerHostnames = (apiResponseArray ?? [])
-                .Select(peer => peer.Hostname);
+        var validPeerHostnames = (apiResponseArray ?? [])
+            .Select(peer => peer.Hostname);
 
-            var validPeerEndpoints = (apiResponseArray ?? [])
-                .Select(peer => peer.DhtUri)
-                .Where(uri => uri is not null)
-                .Cast<string>()
-                .Select(uri => new Uri(uri))
-                .Select(uri => new IPEndPoint(
-                    Dns.GetHostAddresses(
-                        uri.DnsSafeHost, AddressFamily.InterNetwork)
-                    .Single(), uri.Port));
+        var validPeerEndpoints = (apiResponseArray ?? [])
+            .Select(peer => peer.DhtUri)
+            .Where(uri => uri is not null)
+            .Cast<string>()
+            .Select(uri => new Uri(uri))
+            .Select(uri => new IPEndPoint(
+                Dns.GetHostAddresses(
+                    uri.DnsSafeHost, AddressFamily.InterNetwork)
+                .Single(), uri.Port));
 
-            return validPeerHostnames
-                .Zip(validPeerEndpoints);
-        }
+        return validPeerHostnames
+            .Zip(validPeerEndpoints);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -71,7 +71,7 @@ internal class HubBootstrapService : BackgroundService
             await pgp.GenerateKeyAsync(
                 publicKeyFileInfo: _keyProvider.GetPublicKeyFile(),
                 privateKeyFileInfo: _keyProvider.GetPrivateKeyFile(),
-                username: _hubService.GetSelf().Hostname,
+                username: _peerService.GetSelf().Hostname,
                 password: _keyProvider.GetPrivateKeyPassPhrase()
                 );
         }
@@ -104,9 +104,9 @@ internal class HubBootstrapService : BackgroundService
                                 MaxInboundUnidirectionalStreams = 64
                             }, cts.Token);
 
-                        var hubConnection = new QuicPeerConnection(quicConnection);
-                        await _hubService.OpenConnectionAsync(hubConnection,
-                            new SubverseMessage(_hubService.ConnectionId, 0, ProtocolCode.Command, []),
+                        var peerConnection = new QuicPeerConnection(quicConnection);
+                        await _peerService.OpenConnectionAsync(peerConnection,
+                            new SubverseMessage(_peerService.ConnectionId, 0, ProtocolCode.Command, []),
                             cts.Token
                             );
                     }
