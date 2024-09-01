@@ -332,11 +332,11 @@ namespace Subverse.Server
 
             if (!_entityKeysSources.TryGetValue(peerId, out entityKeysSource))
             {
-                await RouteEntityAsync(peerId);
-
                 entityKeysSource = _entityKeysSources.GetOrAdd(peerId,
                     new TaskCompletionSource<EncryptionKeys>());
             }
+
+            await RouteEntityAsync(peerId);
 
             return await entityKeysSource.Task;
         }
@@ -353,7 +353,7 @@ namespace Subverse.Server
                 _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
             }
 
-            if (!entityKeysSource.TrySetResult(theirCookie.KeyContainer))
+            if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
             {
                 await RouteEntityAsync(theirCookie.Key);
             }
