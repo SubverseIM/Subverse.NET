@@ -155,7 +155,6 @@ namespace Subverse.Server
                 });
 
             await RouteEntityAsync(connectionId);
-
             return connectionId;
         }
 
@@ -341,7 +340,7 @@ namespace Subverse.Server
             return await entityKeysSource.Task;
         }
 
-        private async Task ProcessEntityAsync(SubverseMessage message)
+        private Task ProcessEntityAsync(SubverseMessage message)
         {
             CertificateCookie theirCookie;
             TaskCompletionSource<EncryptionKeys>? entityKeysSource;
@@ -354,6 +353,7 @@ namespace Subverse.Server
             }
 
             entityKeysSource.TrySetResult(theirCookie.KeyContainer);
+            return Task.CompletedTask;
         }
 
         private async Task ProcessSipMessageAsync(SubverseMessage message)
