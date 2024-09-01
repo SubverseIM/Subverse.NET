@@ -11,7 +11,6 @@ namespace Subverse.Abstractions
 
         void SendMessage(SubverseMessage message);
 
-
         bool HasValidConnectionTo(SubversePeerId peerId);
     }
 }
