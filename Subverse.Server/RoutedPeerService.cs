@@ -233,7 +233,7 @@ namespace Subverse.Server
         {
             lock (this)
             {
-                IPEndPoint serviceEndPoint = GetRemoteEndPointAsync().Result;
+                IPEndPoint serviceEndPoint = _localEndPoint ?? GetRemoteEndPointAsync().Result;
                 return _cachedSelf = new SubversePeer(
                         _configHostname,
                         new UriBuilder()
