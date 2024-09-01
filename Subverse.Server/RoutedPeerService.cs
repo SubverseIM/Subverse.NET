@@ -222,25 +222,17 @@ namespace Subverse.Server
         {
             lock (this)
             {
-                if (_cachedSelf is null)
-                {
-                    IPEndPoint serviceEndPoint = GetRemoteEndPointAsync().Result;
-
-                    return _cachedSelf = new SubversePeer(
-                            _configHostname,
-                            new UriBuilder()
-                            {
-                                Scheme = "subverse",
-                                Host = serviceEndPoint.Address.ToString(),
-                                Port = serviceEndPoint.Port
-                            }.ToString(),
-                            DateTime.UtcNow
-                            );
-                }
-                else
-                {
-                    return _cachedSelf;
-                }
+                IPEndPoint serviceEndPoint = GetRemoteEndPointAsync().Result;
+                return _cachedSelf = new SubversePeer(
+                        _configHostname,
+                        new UriBuilder()
+                        {
+                            Scheme = "subverse",
+                            Host = serviceEndPoint.Address.ToString(),
+                            Port = serviceEndPoint.Port
+                        }.ToString(),
+                        DateTime.UtcNow
+                        );
             }
         }
 
@@ -249,7 +241,7 @@ namespace Subverse.Server
             _localEndPoint = localEndPoint;
         }
 
-        public async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
+        private async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
         {
             Exception? exInner = null;
             string exMessage = "GetSelf: NAT traversal via STUN failed to obtain an external address for local port: " +
@@ -307,7 +299,7 @@ namespace Subverse.Server
             }
         }
 
-        private async Task RouteEntityAsync(SubversePeerId peerId) 
+        private async Task RouteEntityAsync(SubversePeerId peerId)
         {
             LocalCertificateCookie myCookie = new LocalCertificateCookie(
                 _keyProvider.GetPublicKeyFile().OpenRead(),
@@ -436,7 +428,7 @@ namespace Subverse.Server
                 await RouteMessageAsync(message with { TimeToLive = _configStartTTL });
             }
             else if (
-                message.TimeToLive > 0 && 
+                message.TimeToLive > 0 &&
                 _connectionMap.TryGetValue(message.Recipient,
                     out HashSet<IPeerConnection>? connections))
             {
@@ -459,7 +451,7 @@ namespace Subverse.Server
                         await completedTask;
                         cts.Cancel();
                     }
-                    catch (Exception) 
+                    catch (Exception)
                     {
                         allTasks.Remove(completedTask);
                     }
