@@ -235,17 +235,15 @@ namespace Subverse.Server
         {
             lock (this)
             {
-                IPAddress? serviceAddr = Dns
-                    .GetHostAddresses(Environment.MachineName)
-                    .FirstOrDefault(x => x.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                IPEndPoint remoteEndPoint = GetRemoteEndPointAsync().Result;
 
                 return _cachedSelf = new SubversePeer(
                         _configHostname,
                         new UriBuilder()
                         {
                             Scheme = "subverse",
-                            Host = serviceAddr?.ToString() ?? _configHostname,
-                            Port = _localEndPoint?.Port ?? 30603
+                            Host = remoteEndPoint.Address.ToString(),
+                            Port = remoteEndPoint.Port,
                         }.ToString(),
                         DateTime.UtcNow
                         );
