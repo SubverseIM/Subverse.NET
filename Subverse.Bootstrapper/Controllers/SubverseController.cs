@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using Subverse.Models;
+using System.Text;
 
 namespace Subverse.Bootstrapper.Controllers
 {
@@ -53,12 +54,12 @@ namespace Subverse.Bootstrapper.Controllers
         }
 
         [HttpPost("ping")]
-        [Consumes("application/octet-stream")]
+        [Consumes("application/json")]
         [Produces("application/json")]
-        public SubversePeer[] ExchangeRecentlySeenPeerInfoAsync()
+        public async Task<SubversePeer[]> ExchangeRecentlySeenPeerInfoAsync(CancellationToken cancellationToken)
         {
             SubversePeer? thisPeer;
-            using (var streamReader = new StreamReader(Request.Body))
+            using (var streamReader = new StreamReader(Request.Body, Encoding.UTF8))
             using (var jsonReader = new JsonTextReader(streamReader))
             {
                 var serializer = new JsonSerializer();
@@ -76,9 +77,9 @@ namespace Subverse.Bootstrapper.Controllers
 
                 _cache.SetString(thisPeerKey, thisPeerJsonStr);
 
-                var allPeerKeys = AppendWithLockAsync(
-                    CACHE_KNOWN_PEERS_KEY, thisPeerKey, default
-                    ).Result;
+                var allPeerKeys = await AppendWithLockAsync(
+                    CACHE_KNOWN_PEERS_KEY, thisPeerKey, cancellationToken
+                    );
                 return allPeerKeys
                     .Where(otherPeerKey => otherPeerKey != thisPeerKey)
                     .Select(otherPeerKey => JsonConvert.DeserializeObject<SubversePeer>(_cache.GetString(otherPeerKey) ?? "null"))
