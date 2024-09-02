@@ -63,7 +63,11 @@ namespace Subverse.Server
 
                 int remotePort = _mapping.PublicPort;
                 IPAddress remoteAddr = await _natDevice.GetExternalIPAsync();
-                _peerService.RemoteEndPoint = new IPEndPoint(remoteAddr, remotePort);
+
+                if (remoteAddr != IPAddress.Any)
+                {
+                    _peerService.RemoteEndPoint = new IPEndPoint(remoteAddr, remotePort);
+                }
 
                 _logger.LogInformation($"Successfully allocated external endpoint: {_peerService.RemoteEndPoint}");
             }
