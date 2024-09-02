@@ -287,22 +287,23 @@ namespace Subverse.Server
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
+            var connection = sender as IPeerConnection;
             if (!e.Message.Recipient.Equals(ConnectionId))
             {
                 await RouteMessageAsync(e.Message);
             }
             else
             {
-                await ProcessMessageAsync(e.Message);
+                await ProcessMessageAsync(connection, e.Message);
             }
         }
 
-        private async Task ProcessMessageAsync(SubverseMessage message)
+        private async Task ProcessMessageAsync(IPeerConnection? connection, SubverseMessage message)
         {
             switch (message.Code)
             {
                 case ProtocolCode.Entity:
-                    await ProcessEntityAsync(message);
+                    await ProcessEntityAsync(connection, message);
                     break;
                 case ProtocolCode.Application:
                     await ProcessSipMessageAsync(message);
@@ -338,7 +339,7 @@ namespace Subverse.Server
             return await entityKeysSource.Task;
         }
 
-        private async Task ProcessEntityAsync(SubverseMessage message)
+        private async Task ProcessEntityAsync(IPeerConnection? connection, SubverseMessage message)
         {
             CertificateCookie theirCookie;
             TaskCompletionSource<EncryptionKeys>? entityKeysSource;
@@ -352,6 +353,11 @@ namespace Subverse.Server
 
             if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
             {
+                await (connection?.CompleteHandshakeAsync(
+                    new SubverseMessage(theirCookie.Key,
+                        0, ProtocolCode.Command, []), 
+                    default) ?? Task.CompletedTask);
+
                 await RouteEntityAsync(theirCookie.Key);
             }
         }

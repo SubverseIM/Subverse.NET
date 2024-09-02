@@ -68,7 +68,11 @@ namespace Subverse.Server
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
                     (key, oldCts) =>
                     {
-                        oldCts.Dispose();
+                        if (!oldCts.IsCancellationRequested)
+                        {
+                            oldCts.Dispose();
+                        }
+
                         return newCts;
                     });
 
@@ -107,7 +111,10 @@ namespace Subverse.Server
         {
             return Task.Run(() =>
             {
-                if (!quicStream.CanRead) return;
+                if (!quicStream.CanRead)
+                {
+                    throw new NotSupportedException();
+                }
 
                 using (var bsonReader = new BsonDataReader(quicStream) { CloseInput = false, SupportMultipleContent = true })
                 {
@@ -166,7 +173,10 @@ namespace Subverse.Server
                     {
                         foreach (var (_, cts) in _ctsMap)
                         {
-                            cts.Dispose();
+                            if (!cts.IsCancellationRequested)
+                            {
+                                cts.Dispose();
+                            }
                         }
 
                         Task.WhenAll(_taskMap.Values).Wait();
