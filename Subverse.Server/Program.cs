@@ -14,26 +14,18 @@ GlobalConfiguration.Configuration
                 .UseRecommendedSerializerSettings()
                 .UseMemoryStorage();
 
-// Logging
-builder.Services.AddTransient(provider =>
-{
-    var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
-    const string categoryName = "ALL";
-    return loggerFactory.CreateLogger(categoryName);
-});
-
 // Helpers
+builder.Configuration.AddEnvironmentVariables("Subverse_");
 builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
-builder.Services.AddSingleton<IStunUriProvider, AlwaysOnlineStunUriProvider>();
 
 // Mission-critical
 builder.Services.AddSingleton<IPeerService, RoutedPeerService>();
 builder.Services.AddSingleton<IMessageQueue<string>, PersistentMessageQueue>();
 
 // Main
-builder.Configuration.AddEnvironmentVariables("Subverse_");
 builder.Services.AddHostedService<QuicListenerService>();
 builder.Services.AddHostedService<PeerBootstrapService>();
+builder.Services.AddHostedService<NatTunnelService>();
 
 // Windows-specific
 builder.Services.AddWindowsService(options => 

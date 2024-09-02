@@ -12,6 +12,8 @@ namespace Subverse.Abstractions
         Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken);
 
         SubversePeer GetSelf();
-        void SetLocalEndPoint(IPEndPoint localEndPoint);
+
+        IPEndPoint? LocalEndPoint { get; set; }
+        IPEndPoint? RemoteEndPoint { get; set; }
     }
 }

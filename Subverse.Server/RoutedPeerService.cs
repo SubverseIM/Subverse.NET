@@ -1,16 +1,14 @@
 ﻿using Hangfire;
 using PgpCore;
-using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using Subverse.Abstractions;
-using Subverse.Exceptions;
 using Subverse.Implementations;
 using Subverse.Models;
-using Subverse.Stun;
 using Subverse.Types;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+
 using static Subverse.Models.SubverseMessage;
 
 namespace Subverse.Server
@@ -24,7 +22,6 @@ namespace Subverse.Server
         private readonly ILogger<RoutedPeerService> _logger;
         private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
-        private readonly IStunUriProvider _stunUriProvider;
 
         private readonly string _configHostname;
         private readonly int _configStartTTL;
@@ -40,7 +37,8 @@ namespace Subverse.Server
         private readonly SIPUDPChannel _sipChannel;
         private readonly SIPTransport _sipTransport;
 
-        private IPEndPoint? _localEndPoint;
+        public IPEndPoint? LocalEndPoint { get; set; }
+        public IPEndPoint? RemoteEndPoint { get; set; }
 
         public SubversePeerId ConnectionId { get; }
 
@@ -48,8 +46,7 @@ namespace Subverse.Server
             IConfiguration configuration,
             ILogger<RoutedPeerService> logger,
             IMessageQueue<string> messageQueue,
-            IPgpKeyProvider keyProvider,
-            IStunUriProvider stunUriProvider)
+            IPgpKeyProvider keyProvider)
         {
             _configuration = configuration;
 
@@ -64,7 +61,6 @@ namespace Subverse.Server
             _logger = logger;
             _messageQueue = messageQueue;
             _keyProvider = keyProvider;
-            _stunUriProvider = stunUriProvider;
 
             if (!_keyProvider.GetPublicKeyFile().Exists || !_keyProvider.GetPrivateKeyFile().Exists)
             {
@@ -232,57 +228,19 @@ namespace Subverse.Server
 
         public SubversePeer GetSelf()
         {
-            IPAddress localAddr = Dns.GetHostAddresses(Environment.MachineName)
-                .First(addr => addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-
             return new SubversePeer(
                     _configHostname,
+                    LocalEndPoint is null ? null :
                     new UriBuilder()
                     {
                         Scheme = "subverse",
-                        Host = localAddr.ToString(),
-                        Port = _localEndPoint?.Port ?? 30603,
+                        Host = RemoteEndPoint?.Address.ToString() ?? 
+                            LocalEndPoint.Address.ToString(),
+                        Port = RemoteEndPoint?.Port ?? 
+                            LocalEndPoint.Port,
                     }.ToString(),
                     DateTime.UtcNow
                     );
-        }
-
-        public void SetLocalEndPoint(IPEndPoint localEndPoint)
-        {
-            _localEndPoint = localEndPoint;
-        }
-
-        private async Task<IPEndPoint> GetRemoteEndPointAsync(int? localPortNum = null)
-        {
-            Exception? exInner = null;
-            string exMessage = "GetSelf: NAT traversal via STUN failed to obtain an external address for local port: " +
-                (localPortNum?.ToString() ?? _localEndPoint?.Port.ToString() ?? "<unspecified>");
-            try
-            {
-                var stunClient = new StunClientUdp();
-
-                StunMessage? stunResponse = null;
-                await foreach (var uri in _stunUriProvider.GetAvailableAsync())
-                {
-                    stunResponse = await stunClient.SendRequestAsync(new StunMessage([]),
-                            localPortNum ?? _localEndPoint?.Port ?? 0, uri ?? string.Empty);
-                    break;
-                }
-
-                foreach (var stunAttr in stunResponse?.Attributes ?? [])
-                {
-                    switch (stunAttr.Type)
-                    {
-                        case StunAttributeType.MAPPED_ADDRESS:
-                            return stunAttr.GetMappedAddress();
-                        case StunAttributeType.XOR_MAPPED_ADDRESS:
-                            return stunAttr.GetXorMappedAddress();
-                    }
-                }
-            }
-            catch (Exception ex) { exInner = ex; }
-
-            throw new InvalidEntityException(exMessage, exInner);
         }
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
@@ -315,7 +273,7 @@ namespace Subverse.Server
         {
             LocalCertificateCookie myCookie = new LocalCertificateCookie(
                 _keyProvider.GetPublicKeyFile().OpenRead(),
-                _myEntityKeys, GetSelf() with { DhtUri = null });
+                _myEntityKeys, GetSelf() with { ServiceUri = null });
 
             await RouteMessageAsync(
                 new SubverseMessage(

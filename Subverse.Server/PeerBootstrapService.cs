@@ -53,7 +53,7 @@ internal class PeerBootstrapService : BackgroundService
             .Select(peer => peer.Hostname);
 
         var validPeerEndpoints = (apiResponseArray ?? [])
-            .Select(peer => peer.DhtUri)
+            .Select(peer => peer.ServiceUri)
             .Where(uri => uri is not null)
             .Cast<string>()
             .Select(uri => new Uri(uri))
