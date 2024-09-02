@@ -230,8 +230,8 @@ namespace Subverse.Server
         {
             return new SubversePeer(
                     _configHostname,
-                    LocalEndPoint is null ? null :
-                    new UriBuilder()
+                    LocalEndPoint is null || RemoteEndPoint is null ? 
+                    null : new UriBuilder()
                     {
                         Scheme = "subverse",
                         Host = RemoteEndPoint?.Address.ToString(),
