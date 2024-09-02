@@ -234,12 +234,8 @@ namespace Subverse.Server
                     new UriBuilder()
                     {
                         Scheme = "subverse",
-                        Host = RemoteEndPoint?.Address.ToString() ??
-                            (LocalEndPoint.Address == IPAddress.Any ? 
-                                LocalEndPoint.Address.ToString() : 
-                                null),
-                        Port = RemoteEndPoint?.Port ??
-                            LocalEndPoint.Port,
+                        Host = RemoteEndPoint?.Address.ToString(),
+                        Port = RemoteEndPoint?.Port ?? 0,
                     }.ToString(),
                     DateTime.UtcNow
                     );

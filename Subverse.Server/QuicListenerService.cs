@@ -95,13 +95,10 @@ namespace Subverse.Server
                 List<Task> listenTasks = new ();
                 try
                 {
-                    IPAddress? localAddress = Dns.GetHostAddresses(Environment.MachineName)
-                        .FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork);
-
                     _listener = await QuicListener.ListenAsync(
                         new QuicListenerOptions
                         {
-                            ListenEndPoint = new IPEndPoint(localAddress ?? IPAddress.Loopback, 0),
+                            ListenEndPoint = new IPEndPoint(IPAddress.Any, 0),
                             ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
                             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
                         }, stoppingToken);
