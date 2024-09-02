@@ -1,10 +1,10 @@
-﻿using Alethic.Kademlia;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
+using Subverse.Types;
 using System.Globalization;
 
 namespace Subverse.Implementations
 {
-    internal class NodeIdConverter : JsonConverter<KNodeId160>
+    public class PeerIdConverter : JsonConverter<SubversePeerId>
     {
         private static byte[] StringToByteArray(string hex)
         {
@@ -14,12 +14,12 @@ namespace Subverse.Implementations
                              .ToArray();
         }
 
-        public override KNodeId160 ReadJson(JsonReader reader, Type objectType, KNodeId160 existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override SubversePeerId ReadJson(JsonReader reader, Type objectType, SubversePeerId existingValue, bool hasExistingValue, JsonSerializer serializer)
         {
-            return new KNodeId160(StringToByteArray((string?)reader.Value ?? string.Empty));
+            return new SubversePeerId(StringToByteArray((string?)reader.Value ?? string.Empty));
         }
 
-        public override void WriteJson(JsonWriter writer, KNodeId160 value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, SubversePeerId value, JsonSerializer serializer)
         {
             writer.WriteValue(value.ToString());
         }

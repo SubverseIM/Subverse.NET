@@ -1,58 +1,59 @@
 using Subverse.Abstractions;
-using Subverse.Abstractions.Server;
-using Subverse.Implementations;
+using Subverse.Types;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Subverse.Server
 {
-#pragma warning disable CA1416 // Validate platform compatibility
     internal class QuicListenerService : BackgroundService
     {
-        private const string DEFAULT_CERT_PATH = "server/conf/server.pfx";
+        private const string DEFAULT_CERT_PATH = "server/conf/default.subverse.pfx";
+        private const string DEFAULT_CERT_PASSWORD = "#FreeTheInternet";
 
         private readonly IConfiguration _configuration;
         private readonly IHostEnvironment _environment;
         private readonly ILogger<QuicListenerService> _logger;
-
-        private readonly IPgpKeyProvider _keyProvider;
-        private readonly IHubService _hubService;
+        private readonly IPeerService _peerService;
 
         private QuicListener? _listener;
 
-        public QuicListenerService(IConfiguration configuration, IHostEnvironment environment, ILogger<QuicListenerService> logger, IPgpKeyProvider keyProvider, IHubService hubService)
+        public QuicListenerService(IConfiguration configuration, IHostEnvironment environment, ILogger<QuicListenerService> logger, IPeerService hubService)
         {
             _configuration = configuration;
             _environment = environment;
             _logger = logger;
-            _keyProvider = keyProvider;
-            _hubService = hubService;
+            _peerService = hubService;
         }
 
-        private X509Certificate GetServerCertificate()
+        private X509Certificate? GetServerCertificate()
         {
-            var certPath = _configuration.GetSection("Privacy").GetValue<string>("SSLCertPath") ?? DEFAULT_CERT_PATH;
-            var certPassword = _configuration.GetSection("Privacy").GetValue<string>("SSLCertPassword");
-            return new X509Certificate2(Path.IsPathFullyQualified(certPath) ? certPath :
-                Path.Combine(_environment.ContentRootPath, certPath), certPassword);
+            var certPath = _configuration.GetSection("Privacy")
+                .GetValue<string?>("SSLCertPath") ?? DEFAULT_CERT_PATH;
+
+            var certPathFull = Path.IsPathFullyQualified(certPath) ? certPath :
+                Path.Combine(_environment.ContentRootPath, certPath);
+
+            var certPassword = _configuration.GetSection("Privacy")
+                .GetValue<string?>("SSLCertPassword") ?? DEFAULT_CERT_PASSWORD;
+
+            return File.Exists(certPathFull) ? X509CertificateLoader
+                .LoadPkcs12FromFile(certPathFull, certPassword) : null;
         }
 
         private async Task ListenConnectionsAsync(QuicConnection quicConnection, CancellationToken cancellationToken)
         {
-            var connectionList = new List<IEntityConnection>();
+            var peerConnection = new QuicPeerConnection(quicConnection);
+            List<SubversePeerId> connectionIds = new();
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var quicStream = await quicConnection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-
-                    var entityConnection = new QuicEntityConnection(quicStream, _keyProvider.GetPublicKeyFile(), _keyProvider.GetPrivateKeyFile(), _keyProvider.GetPrivateKeyPassPhrase());
-                    connectionList.Add(entityConnection);
-
-                    await _hubService.OpenConnectionAsync(entityConnection);
+                    connectionIds.Add(await _peerService.OpenConnectionAsync(
+                        peerConnection, null, cancellationToken));
                 }
             }
             catch (Exception ex)
@@ -60,10 +61,13 @@ namespace Subverse.Server
                 _logger.LogError(ex, null);
             }
 
-            foreach (var entityConnection in connectionList)
+            foreach (var connectionId in connectionIds)
             {
-                await _hubService.CloseConnectionAsync(entityConnection);
+                await _peerService.CloseConnectionAsync(
+                    peerConnection, connectionId, default
+                    );
             }
+
             await quicConnection.DisposeAsync();
         }
 
@@ -81,27 +85,26 @@ namespace Subverse.Server
 
                     ServerAuthenticationOptions = new SslServerAuthenticationOptions
                     {
-                        ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
+                        ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
                         ServerCertificate = GetServerCertificate()
                     },
 
-                    MaxInboundBidirectionalStreams = 10
+                    KeepAliveInterval = TimeSpan.FromSeconds(1.0),
                 };
 
-                _hubService.SetLocalEndPoint(new IPEndPoint(IPAddress.Any, 30603));
-                _hubService.GetSelf();
-
-                _listener = await QuicListener.ListenAsync(
-                    new QuicListenerOptions
-                    {
-                        ListenEndPoint = new IPEndPoint(IPAddress.Any, 30603),
-                        ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV1") },
-                        ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
-                    });
-
-                var listenTasks = new List<Task>();
+                List<Task> listenTasks = new ();
                 try
                 {
+                    _listener = await QuicListener.ListenAsync(
+                        new QuicListenerOptions
+                        {
+                            ListenEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                            ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
+                            ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
+                        }, stoppingToken);
+
+                    _peerService.LocalEndPoint = _listener.LocalEndPoint;
+
                     while (!stoppingToken.IsCancellationRequested)
                     {
                         var quicConnection = await _listener.AcceptConnectionAsync(stoppingToken);
@@ -116,9 +119,9 @@ namespace Subverse.Server
                 }
 
                 await Task.WhenAll(listenTasks);
-                await _listener.DisposeAsync();
+                await (_listener?.DisposeAsync() ?? 
+                    ValueTask.CompletedTask);
             }
         }
     }
-#pragma warning restore CA1416 // Validate platform compatibility
 }

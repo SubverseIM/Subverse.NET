@@ -1,23 +1,23 @@
-﻿using Alethic.Kademlia;
+﻿using Newtonsoft.Json;
+using PgpCore;
 using Subverse.Abstractions;
 using Subverse.Exceptions;
 using Subverse.Models;
-using Newtonsoft.Json;
-using PgpCore;
+using Subverse.Types;
 using System.Text;
 
 namespace Subverse.Implementations
 {
-    public class CertificateCookie : ICookie<KNodeId160>
+    public class CertificateCookie : ICookie<SubversePeerId>
     {
         private readonly byte[]? blobBytes;
 
         public EncryptionKeys KeyContainer { get; }
 
-        public KNodeId160 Key => new(KeyContainer.PublicKey.GetFingerprint());
-        public SubverseEntity? Body { get; }
+        public SubversePeerId Key => new(KeyContainer.PublicKey.GetFingerprint());
+        public SubversePeer? Body { get; }
 
-        protected CertificateCookie(EncryptionKeys keyContainer, SubverseEntity body)
+        protected CertificateCookie(EncryptionKeys keyContainer, SubversePeer body)
         {
             KeyContainer = keyContainer;
             Body = body;
@@ -31,11 +31,11 @@ namespace Subverse.Implementations
             if (result.IsVerified)
             {
                 KeyContainer = keyContainer;
-                Body = JsonConvert.DeserializeObject<SubverseEntity>(result.ClearText,
+                Body = JsonConvert.DeserializeObject<SubversePeer>(result.ClearText,
                     new JsonSerializerSettings
                     {
                         TypeNameHandling = TypeNameHandling.Objects,
-                        Converters = { new NodeIdConverter() }
+                        Converters = { new PeerIdConverter() }
                     });
             }
             else
@@ -46,7 +46,7 @@ namespace Subverse.Implementations
             this.blobBytes = blobBytes;
         }
 
-        public static ICookie<KNodeId160> FromBlobBytes(byte[] blobBytes)
+        public static ICookie<SubversePeerId> FromBlobBytes(byte[] blobBytes)
         {
             using (var bodyStream = new MemoryStream(blobBytes))
             using (var bodyReader = new StreamReader(bodyStream, Encoding.ASCII))

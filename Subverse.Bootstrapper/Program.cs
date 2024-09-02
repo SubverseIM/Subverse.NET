@@ -1,5 +1,3 @@
-using static Org.BouncyCastle.Math.EC.ECCurve;
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
