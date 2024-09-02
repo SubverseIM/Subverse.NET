@@ -1,8 +1,6 @@
 ﻿
 using Newtonsoft.Json;
-using PgpCore;
 using Subverse.Abstractions;
-using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Server;
 using System.Collections.Concurrent;
@@ -41,7 +39,7 @@ internal class PeerBootstrapService : BackgroundService
         _connectionMap = new ();
     }
 
-    private async Task<IEnumerable<(string hostname, IPEndPoint remoteEndpoint)>> BootstrapSelfAsync()
+    private async Task<IEnumerable<(string hostname, IPEndPoint? remoteEndpoint)>> BootstrapSelfAsync()
     {
         var selfJsonStr = JsonConvert.SerializeObject(_peerService.GetSelf());
         var selfJsonContent = new StringContent(selfJsonStr, Encoding.UTF8, MediaTypeNames.Application.Json);
@@ -54,13 +52,11 @@ internal class PeerBootstrapService : BackgroundService
 
         var validPeerEndpoints = (apiResponseArray ?? [])
             .Select(peer => peer.ServiceUri)
-            .Where(uri => uri is not null)
-            .Cast<string>()
-            .Select(uri => new Uri(uri))
-            .Select(uri => new IPEndPoint(
-                Dns.GetHostAddresses(
-                    uri.DnsSafeHost, AddressFamily.InterNetwork)
-                .Single(), uri.Port));
+            .Select(str => str is null ? null : new Uri(str))
+            .Select(uri => uri is null ? null :
+                new IPEndPoint(Dns.GetHostAddresses(uri.DnsSafeHost)
+                    .Single(a => a.AddressFamily == AddressFamily.InterNetwork),
+                    uri.Port));
 
         return validPeerHostnames
             .Zip(validPeerEndpoints);
@@ -72,6 +68,8 @@ internal class PeerBootstrapService : BackgroundService
         {
             foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
             {
+                if (remoteEndPoint is null) continue;
+
                 try
                 {
                     stoppingToken.ThrowIfCancellationRequested();
