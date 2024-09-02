@@ -32,15 +32,20 @@ namespace Subverse.Server
                 await _tcs.Task.WaitAsync(stoppingToken);
             }
             catch (OperationCanceledException) { }
-            finally
+
+            try
             {
                 if (_natDevice is not null && _mapping is not null)
                 {
                     await _natDevice.DeletePortMapAsync(_mapping);
                 }
-
-                NatUtility.StopDiscovery();
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, null);
+            }
+
+            NatUtility.StopDiscovery();
         }
 
         private async void NatDeviceFound(object? sender, DeviceEventArgs e)
@@ -53,7 +58,7 @@ namespace Subverse.Server
 
                 int localPort = _peerService.LocalEndPoint.Port;
                 _mapping = await _natDevice.CreatePortMapAsync(
-                    new(Protocol.Udp, localPort, 6_3_2003, 0, "SubverseV2")
+                    new(Protocol.Udp, localPort, 6_03_03, 0, "SubverseV2")
                     );
 
                 int remotePort = _mapping.PublicPort;
