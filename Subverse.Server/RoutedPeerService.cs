@@ -235,7 +235,7 @@ namespace Subverse.Server
                     {
                         Scheme = "subverse",
                         Host = RemoteEndPoint?.Address.ToString(),
-                        Port = RemoteEndPoint?.Port ?? 0,
+                        Port = RemoteEndPoint?.Port ?? 6_03_03,
                     }.ToString(),
                     DateTime.UtcNow
                     );
