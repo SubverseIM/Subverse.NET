@@ -235,7 +235,9 @@ namespace Subverse.Server
                     {
                         Scheme = "subverse",
                         Host = RemoteEndPoint?.Address.ToString() ??
-                            LocalEndPoint.Address.ToString(),
+                            (LocalEndPoint.Address == IPAddress.Any ? 
+                                LocalEndPoint.Address.ToString() : 
+                                null),
                         Port = RemoteEndPoint?.Port ??
                             LocalEndPoint.Port,
                     }.ToString(),
