@@ -234,9 +234,9 @@ namespace Subverse.Server
                     new UriBuilder()
                     {
                         Scheme = "subverse",
-                        Host = RemoteEndPoint?.Address.ToString() ?? 
+                        Host = RemoteEndPoint?.Address.ToString() ??
                             LocalEndPoint.Address.ToString(),
-                        Port = RemoteEndPoint?.Port ?? 
+                        Port = RemoteEndPoint?.Port ??
                             LocalEndPoint.Port,
                     }.ToString(),
                     DateTime.UtcNow
@@ -311,10 +311,13 @@ namespace Subverse.Server
 
             if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
             {
-                await (connection?.CompleteHandshakeAsync(
-                    new SubverseMessage(theirCookie.Key,
-                        0, ProtocolCode.Command, []), 
-                    default) ?? Task.CompletedTask);
+                if (connection is not null)
+                {
+                    await OpenConnectionAsync(connection, 
+                        new SubverseMessage(theirCookie.Key,
+                            0, ProtocolCode.Command, []),
+                        default);
+                }
 
                 await RouteEntityAsync(theirCookie.Key);
             }
