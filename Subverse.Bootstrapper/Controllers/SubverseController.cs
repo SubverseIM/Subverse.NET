@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using Subverse.Models;
+using System.Net;
 using System.Text;
 
 namespace Subverse.Bootstrapper.Controllers
@@ -35,13 +36,13 @@ namespace Subverse.Bootstrapper.Controllers
             string? lockValue = await _cache.GetStringAsync($"{CACHE_LOCK_KEY}{key}");
 
             // wait for lock to expire
-            while (lockValue is not null) 
+            while (lockValue is not null)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(CACHE_LOCK_WAIT_MS));
                 lockValue = await _cache.GetStringAsync(lockKey);
             }
 
-            await _cache.SetStringAsync($"{CACHE_LOCK_KEY}{key}", Guid.NewGuid().ToString(), 
+            await _cache.SetStringAsync($"{CACHE_LOCK_KEY}{key}", Guid.NewGuid().ToString(),
                 new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMilliseconds(CACHE_LOCK_EXPIRE_MS) });
 
             string? jsonString = await _cache.GetStringAsync(key);
@@ -73,7 +74,8 @@ namespace Subverse.Bootstrapper.Controllers
                     thisPeer with { MostRecentlySeenOn = DateTime.UtcNow }
                     );
 
-                await _cache.SetStringAsync(thisPeerKey, thisPeerJsonStr);
+                await _cache.SetStringAsync(thisPeerKey, thisPeerJsonStr,
+                    new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(1.0) });
 
                 var allPeerKeys = await AppendWithLockAsync(
                     CACHE_KNOWN_PEERS_KEY, thisPeerKey
@@ -84,6 +86,18 @@ namespace Subverse.Bootstrapper.Controllers
                     .OrderByDescending(x => x?.MostRecentlySeenOn ?? DateTime.MinValue)
                     .Where(x => x is not null)
                     .Cast<SubversePeer>()
+                    .Where(peer =>
+                    {
+                        if (peer.ServiceUri is not null)
+                        {
+                            var uri = new Uri(peer.ServiceUri);
+                            return uri.Port >= 0 && uri.DnsSafeHost.Any();
+                        }
+                        else 
+                        {
+                            return false;
+                        }
+                    })
                     .Take(_configTopN)
                     .ToArray();
             }
