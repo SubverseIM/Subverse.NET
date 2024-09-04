@@ -34,7 +34,7 @@ internal class PeerBootstrapService : BackgroundService
         _logger = logger;
         _peerService = hubService;
 
-        _http = new HttpClient() { BaseAddress = new(_configApiUrl), Timeout = TimeSpan.FromSeconds(30.0) };
+        _http = new HttpClient() { BaseAddress = new(_configApiUrl), Timeout = TimeSpan.FromSeconds(120.0) };
 
         _connectionMap = new();
     }
@@ -110,6 +110,7 @@ internal class PeerBootstrapService : BackgroundService
                         !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId))
                     {
                         _connectionMap.TryRemove(hostname, out IPeerConnection? _);
+                        await Task.Delay(TimeSpan.FromSeconds(5.0));
                         continue;
                     }
 
