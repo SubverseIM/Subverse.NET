@@ -146,7 +146,7 @@ internal class PeerBootstrapService : BackgroundService
                     _logger.LogError(ex, null);
                 }
 
-                await Task.Delay(15000);
+                await Task.Delay(5000);
             }
         }
 
