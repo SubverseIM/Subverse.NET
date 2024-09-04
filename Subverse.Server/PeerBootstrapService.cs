@@ -97,8 +97,9 @@ internal class PeerBootstrapService : BackgroundService
                     stoppingToken.ThrowIfCancellationRequested();
 
                     if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) && 
-                        currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
+                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
                     {
+                        _connectionMap.TryRemove(hostname, out IPeerConnection? _);
                         continue;
                     }
 
@@ -145,7 +146,7 @@ internal class PeerBootstrapService : BackgroundService
                     _logger.LogError(ex, null);
                 }
 
-                await Task.Delay(5000);
+                await Task.Delay(15000);
             }
         }
 
