@@ -88,15 +88,17 @@ namespace Subverse.Bootstrapper.Controllers
                     .Cast<SubversePeer>()
                     .Where(peer =>
                     {
-                        if (peer.ServiceUri is not null)
+                        if (!string.IsNullOrWhiteSpace(peer.ServiceUri))
                         {
-                            var uri = new Uri(peer.ServiceUri);
-                            return uri.Port >= 0 && uri.DnsSafeHost.Any();
+                            try
+                            {
+                                var uri = new Uri(peer.ServiceUri);
+                                return uri.Port >= 0 && uri.DnsSafeHost.Any();
+                            }
+                            catch (UriFormatException) { }
                         }
-                        else 
-                        {
-                            return false;
-                        }
+
+                        return false;
                     })
                     .Take(_configTopN)
                     .ToArray();
