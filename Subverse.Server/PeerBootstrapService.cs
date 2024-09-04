@@ -36,7 +36,7 @@ internal class PeerBootstrapService : BackgroundService
 
         _http = new HttpClient() { BaseAddress = new(_configApiUrl), Timeout = TimeSpan.FromSeconds(5.0) };
 
-        _connectionMap = new ();
+        _connectionMap = new();
     }
 
     private async Task<IEnumerable<(string hostname, IPEndPoint? remoteEndpoint)>> BootstrapSelfAsync()
@@ -44,51 +44,50 @@ internal class PeerBootstrapService : BackgroundService
         var selfJsonStr = JsonConvert.SerializeObject(_peerService.GetSelf());
         var selfJsonContent = new StringContent(selfJsonStr, Encoding.UTF8, MediaTypeNames.Application.Json);
 
+        SubversePeer[]? apiResponseArray = null;
         try
         {
             using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
-            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
-
-            var validPeerHostnames = (apiResponseArray ?? [])
-                .Select(peer => peer.Hostname);
-
-            var validPeerEndpoints = (apiResponseArray ?? [])
-                .Select(peer =>
-                {
-                    if (!string.IsNullOrWhiteSpace(peer.ServiceUri))
-                    {
-                        try
-                        {
-                            return new Uri(peer.ServiceUri);
-                        }
-                        catch (UriFormatException) { }
-                    }
-                    return null;
-                })
-                .Select(uri =>
-                {
-                    if (uri is not null)
-                    {
-                        try
-                        {
-                            IPAddress? hostAddress = Dns.GetHostAddresses(uri.DnsSafeHost)
-                                .SingleOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
-                            return hostAddress is null ? null : new IPEndPoint(hostAddress, uri.Port);
-                        }
-                        catch (ArgumentException) { }
-                        catch (SocketException) { }
-                    }
-
-                    return null;
-                });
-
-            return validPeerHostnames
-                .Zip(validPeerEndpoints);
+            apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
         }
-        catch(HttpIOException) 
-        {
-            return [];
-        }
+        catch (HttpIOException) { }
+        catch (OperationCanceledException) { }
+
+        var validPeerHostnames = (apiResponseArray ?? [])
+            .Select(peer => peer.Hostname);
+
+        var validPeerEndpoints = (apiResponseArray ?? [])
+            .Select(peer =>
+            {
+                if (!string.IsNullOrWhiteSpace(peer.ServiceUri))
+                {
+                    try
+                    {
+                        return new Uri(peer.ServiceUri);
+                    }
+                    catch (UriFormatException) { }
+                }
+                return null;
+            })
+            .Select(uri =>
+            {
+                if (uri is not null)
+                {
+                    try
+                    {
+                        IPAddress? hostAddress = Dns.GetHostAddresses(uri.DnsSafeHost)
+                            .SingleOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                        return hostAddress is null ? null : new IPEndPoint(hostAddress, uri.Port);
+                    }
+                    catch (ArgumentException) { }
+                    catch (SocketException) { }
+                }
+
+                return null;
+            });
+
+        return validPeerHostnames
+            .Zip(validPeerEndpoints);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -103,8 +102,8 @@ internal class PeerBootstrapService : BackgroundService
                 {
                     stoppingToken.ThrowIfCancellationRequested();
 
-                    if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) && 
-                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
+                    if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
+                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId))
                     {
                         _connectionMap.TryRemove(hostname, out IPeerConnection? _);
                         continue;
@@ -133,17 +132,17 @@ internal class PeerBootstrapService : BackgroundService
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);
-                        _connectionMap.AddOrUpdate(hostname, peerConnection, 
-                            (key, oldConnection) => 
+                        _connectionMap.AddOrUpdate(hostname, peerConnection,
+                            (key, oldConnection) =>
                             {
                                 oldConnection.Dispose();
                                 return peerConnection;
                             });
 
-                        await _peerService.OpenConnectionAsync(peerConnection, 
+                        await _peerService.OpenConnectionAsync(peerConnection,
                             new SubverseMessage(
-                                _peerService.ConnectionId, 
-                                0, ProtocolCode.Command, []), 
+                                _peerService.ConnectionId,
+                                0, ProtocolCode.Command, []),
                             cts.Token);
                     }
                 }
