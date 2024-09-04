@@ -21,7 +21,6 @@ namespace Subverse.Server
 
         private readonly IConfiguration _configuration;
         private readonly ILogger<RoutedPeerService> _logger;
-        private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
 
         private readonly string _configHostname;
@@ -46,7 +45,6 @@ namespace Subverse.Server
         public RoutedPeerService(
             IConfiguration configuration,
             ILogger<RoutedPeerService> logger,
-            IMessageQueue<string> messageQueue,
             IPgpKeyProvider keyProvider)
         {
             _configuration = configuration;
@@ -60,7 +58,6 @@ namespace Subverse.Server
             QuicPeerConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _logger = logger;
-            _messageQueue = messageQueue;
             _keyProvider = keyProvider;
 
             if (!_keyProvider.GetPublicKeyFile().Exists || !_keyProvider.GetPrivateKeyFile().Exists)
@@ -95,12 +92,6 @@ namespace Subverse.Server
             _ctsMap = new ConcurrentDictionary<SubversePeerId, CancellationTokenSource>();
             _connectionMap = new ConcurrentDictionary<SubversePeerId, HashSet<IPeerConnection>>();
             _callerMap = new ConcurrentDictionary<string, string>();
-
-            // Schedule queue flushing job
-            RecurringJob.AddOrUpdate(
-                "Subverse.Server.RoutedHubService.FlushMessagesAsync",
-                () => FlushMessagesAsync(CancellationToken.None),
-                Cron.Minutely);
         }
 
         public async Task<SubversePeerId> OpenConnectionAsync(IPeerConnection peerConnection, SubverseMessage? message, CancellationToken cancellationToken)
@@ -122,34 +113,6 @@ namespace Subverse.Server
                         existingConnections.UnionWith(newConnections);
                         return existingConnections;
                     }
-                });
-
-
-            // Immediately send all messages we've cached for this particular entity (in the background)
-            var newCts = new CancellationTokenSource();
-            _ctsMap.AddOrUpdate(connectionId, newCts,
-                (key, oldCts) =>
-                {
-                    oldCts.Dispose();
-                    return newCts;
-                });
-
-            Func<SubversePeerId, Task> newTaskFactory = (key) =>
-                Task.Run(() => FlushMessagesAsync(key, newCts.Token));
-
-            _ = _taskMap.AddOrUpdate(connectionId, newTaskFactory, (key, oldTask) =>
-                {
-                    try
-                    {
-                        oldTask.Wait();
-                    }
-                    catch (OperationCanceledException) { }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex.Message);
-                    }
-
-                    return newTaskFactory(key);
                 });
 
             return connectionId;
@@ -196,34 +159,6 @@ namespace Subverse.Server
             if (allConnections.Contains(connection))
             {
                 connection.Dispose();
-            }
-        }
-
-        public async Task FlushMessagesAsync(SubversePeerId connectionId, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
-
-            while (message is not null)
-            {
-                await RouteMessageAsync(message);
-
-                cancellationToken.ThrowIfCancellationRequested();
-                message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
-            }
-        }
-
-        public async Task FlushMessagesAsync(CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var keyedMessage = await _messageQueue.DequeueAsync();
-
-            while (keyedMessage is not null)
-            {
-                await RouteMessageAsync(keyedMessage.Message);
-
-                cancellationToken.ThrowIfCancellationRequested();
-                keyedMessage = await _messageQueue.DequeueAsync();
             }
         }
 
@@ -422,13 +357,6 @@ namespace Subverse.Server
                         Task.Run(() => x.SendMessage(nextHopMessage))
                         ).ToHashSet();
                 }
-            }
-            // Otherwise, if this message has a valid TTL value...
-            else if (message.TimeToLive >= 0)
-            {
-                // Our only hopes of contacting this peer have run out!! For now...
-                // Queue this message for future delivery.
-                await _messageQueue.EnqueueAsync(message.Recipient.ToString(), message with { TimeToLive = message.TimeToLive - 1 });
             }
         }
     }
