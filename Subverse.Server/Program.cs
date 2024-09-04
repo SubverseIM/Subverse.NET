@@ -20,7 +20,6 @@ builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
 
 // Mission-critical
 builder.Services.AddSingleton<IPeerService, RoutedPeerService>();
-builder.Services.AddSingleton<IMessageQueue<string>, PersistentMessageQueue>();
 
 // Main
 builder.Services.AddHostedService<QuicListenerService>();
