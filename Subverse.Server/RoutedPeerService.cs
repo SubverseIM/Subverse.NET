@@ -342,15 +342,6 @@ namespace Subverse.Server
 
                 string fromEntityStr = request.Header.From.FromURI.User;
                 _callerMap.TryAdd(request.Header.CallId, fromEntityStr);
-
-                if (connection is not null)
-                {
-                    await OpenConnectionAsync(connection,
-                        new SubverseMessage(
-                            SubversePeerId.FromString(fromEntityStr),
-                            0, ProtocolCode.Command, []
-                            ), default);
-                }
             }
             catch (SIPValidationException) { }
 
