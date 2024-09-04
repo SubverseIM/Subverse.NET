@@ -34,7 +34,7 @@ internal class PeerBootstrapService : BackgroundService
         _logger = logger;
         _peerService = hubService;
 
-        _http = new HttpClient() { BaseAddress = new(_configApiUrl), Timeout = TimeSpan.FromSeconds(5.0) };
+        _http = new HttpClient() { BaseAddress = new(_configApiUrl), Timeout = TimeSpan.FromSeconds(30.0) };
 
         _connectionMap = new();
     }
