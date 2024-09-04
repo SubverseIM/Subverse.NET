@@ -428,7 +428,7 @@ namespace Subverse.Server
             {
                 // Our only hopes of contacting this peer have run out!! For now...
                 // Queue this message for future delivery.
-                await _messageQueue.EnqueueAsync(message.Recipient.ToString(), message);
+                await _messageQueue.EnqueueAsync(message.Recipient.ToString(), message with { TimeToLive = message.TimeToLive - 1 });
             }
         }
     }
