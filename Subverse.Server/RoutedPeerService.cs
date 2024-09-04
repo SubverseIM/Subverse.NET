@@ -262,7 +262,7 @@ namespace Subverse.Server
                     await ProcessEntityAsync(connection, message);
                     break;
                 case ProtocolCode.Application:
-                    await ProcessSipMessageAsync(message);
+                    await ProcessSipMessageAsync(connection, message);
                     break;
             }
         }
@@ -321,7 +321,7 @@ namespace Subverse.Server
             }
         }
 
-        private async Task ProcessSipMessageAsync(SubverseMessage message)
+        private async Task ProcessSipMessageAsync(IPeerConnection? connection, SubverseMessage message)
         {
             byte[] messageBytes;
             using (var pgp = new PGP(_myEntityKeys))

@@ -51,12 +51,34 @@ internal class PeerBootstrapService : BackgroundService
             .Select(peer => peer.Hostname);
 
         var validPeerEndpoints = (apiResponseArray ?? [])
-            .Select(peer => peer.ServiceUri)
-            .Select(str => str is null ? null : new Uri(str))
-            .Select(uri => uri is null ? null :
-                new IPEndPoint(Dns.GetHostAddresses(uri.DnsSafeHost)
-                    .Single(a => a.AddressFamily == AddressFamily.InterNetwork),
-                    uri.Port));
+            .Select(peer => 
+            {
+                if (!string.IsNullOrWhiteSpace(peer.ServiceUri)) 
+                {
+                    try
+                    {
+                        return new Uri(peer.ServiceUri);
+                    }
+                    catch (UriFormatException) { }
+                }
+                return null;
+            })
+            .Select(uri => 
+            {
+                if (uri is not null)
+                {
+                    try
+                    {
+                        IPAddress? hostAddress = Dns.GetHostAddresses(uri.DnsSafeHost)
+                            .SingleOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                        return hostAddress is null ? null : new IPEndPoint(hostAddress, uri.Port);
+                    }
+                    catch (ArgumentException) { }
+                    catch (SocketException) { }
+                }
+
+                return null;
+            });
 
         return validPeerHostnames
             .Zip(validPeerEndpoints);
@@ -75,7 +97,7 @@ internal class PeerBootstrapService : BackgroundService
                     stoppingToken.ThrowIfCancellationRequested();
 
                     if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) && 
-                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
+                        currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
                     {
                         continue;
                     }
@@ -122,9 +144,9 @@ internal class PeerBootstrapService : BackgroundService
                 {
                     _logger.LogError(ex, null);
                 }
-            }
 
-            await Task.Delay(TimeSpan.FromSeconds(5.0));
+                await Task.Delay(5000);
+            }
         }
 
         _http.Dispose();
