@@ -51,7 +51,7 @@ internal class PeerBootstrapService : BackgroundService
             apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
         }
         catch (HttpRequestException) { }
-        catch (JsonException) { }
+        catch (System.Text.Json.JsonException) { }
         catch (OperationCanceledException) { }
 
         var validPeerHostnames = (apiResponseArray ?? [])
