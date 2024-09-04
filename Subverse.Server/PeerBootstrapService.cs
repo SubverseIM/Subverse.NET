@@ -44,44 +44,51 @@ internal class PeerBootstrapService : BackgroundService
         var selfJsonStr = JsonConvert.SerializeObject(_peerService.GetSelf());
         var selfJsonContent = new StringContent(selfJsonStr, Encoding.UTF8, MediaTypeNames.Application.Json);
 
-        using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
-        var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
+        try
+        {
+            using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
+            var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
 
-        var validPeerHostnames = (apiResponseArray ?? [])
-            .Select(peer => peer.Hostname);
+            var validPeerHostnames = (apiResponseArray ?? [])
+                .Select(peer => peer.Hostname);
 
-        var validPeerEndpoints = (apiResponseArray ?? [])
-            .Select(peer => 
-            {
-                if (!string.IsNullOrWhiteSpace(peer.ServiceUri)) 
+            var validPeerEndpoints = (apiResponseArray ?? [])
+                .Select(peer =>
                 {
-                    try
+                    if (!string.IsNullOrWhiteSpace(peer.ServiceUri))
                     {
-                        return new Uri(peer.ServiceUri);
+                        try
+                        {
+                            return new Uri(peer.ServiceUri);
+                        }
+                        catch (UriFormatException) { }
                     }
-                    catch (UriFormatException) { }
-                }
-                return null;
-            })
-            .Select(uri => 
-            {
-                if (uri is not null)
+                    return null;
+                })
+                .Select(uri =>
                 {
-                    try
+                    if (uri is not null)
                     {
-                        IPAddress? hostAddress = Dns.GetHostAddresses(uri.DnsSafeHost)
-                            .SingleOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
-                        return hostAddress is null ? null : new IPEndPoint(hostAddress, uri.Port);
+                        try
+                        {
+                            IPAddress? hostAddress = Dns.GetHostAddresses(uri.DnsSafeHost)
+                                .SingleOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                            return hostAddress is null ? null : new IPEndPoint(hostAddress, uri.Port);
+                        }
+                        catch (ArgumentException) { }
+                        catch (SocketException) { }
                     }
-                    catch (ArgumentException) { }
-                    catch (SocketException) { }
-                }
 
-                return null;
-            });
+                    return null;
+                });
 
-        return validPeerHostnames
-            .Zip(validPeerEndpoints);
+            return validPeerHostnames
+                .Zip(validPeerEndpoints);
+        }
+        catch(HttpIOException) 
+        {
+            return [];
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
