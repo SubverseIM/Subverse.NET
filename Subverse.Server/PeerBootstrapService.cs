@@ -121,7 +121,7 @@ internal class PeerBootstrapService : BackgroundService
 
                                 MaxInboundBidirectionalStreams = 64,
 
-                                KeepAliveInterval = TimeSpan.FromSeconds(5.0),
+                                KeepAliveInterval = TimeSpan.FromSeconds(1.0),
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);
