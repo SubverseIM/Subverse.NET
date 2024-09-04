@@ -99,7 +99,7 @@ internal class PeerBootstrapService : BackgroundService
             {
                 if (remoteEndPoint is null) 
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(5.0));
+                    await Task.Delay(TimeSpan.FromSeconds(30.0));
                     continue;
                 }
 
@@ -111,7 +111,7 @@ internal class PeerBootstrapService : BackgroundService
                         !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId))
                     {
                         _connectionMap.TryRemove(hostname, out IPeerConnection? _);
-                        await Task.Delay(TimeSpan.FromSeconds(5.0));
+                        await Task.Delay(TimeSpan.FromSeconds(30.0));
                         continue;
                     }
 
@@ -158,7 +158,7 @@ internal class PeerBootstrapService : BackgroundService
                     _logger.LogError(ex, null);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(5.0));
+                await Task.Delay(TimeSpan.FromSeconds(30.0));
             }
         }
 
