@@ -50,7 +50,7 @@ internal class PeerBootstrapService : BackgroundService
             using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
             apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
         }
-        catch (HttpIOException) { }
+        catch (HttpRequestException) { }
         catch (OperationCanceledException) { }
 
         var validPeerHostnames = (apiResponseArray ?? [])
