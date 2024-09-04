@@ -7,6 +7,7 @@ using Subverse.Models;
 using Subverse.Types;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Quic;
 using System.Text;
 
 using static Subverse.Models.SubverseMessage;
@@ -311,10 +312,14 @@ namespace Subverse.Server
             {
                 if (connection is not null)
                 {
-                    await OpenConnectionAsync(connection, 
-                        new SubverseMessage(theirCookie.Key,
-                            0, ProtocolCode.Command, []),
-                        default);
+                    try
+                    {
+                        await OpenConnectionAsync(connection,
+                            new SubverseMessage(theirCookie.Key,
+                                0, ProtocolCode.Command, []),
+                            default);
+                    }
+                    catch (QuicException) { }
                 }
 
                 await RouteEntityAsync(theirCookie.Key);
