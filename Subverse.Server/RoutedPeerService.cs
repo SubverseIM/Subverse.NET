@@ -26,8 +26,6 @@ namespace Subverse.Server
         private readonly string _configHostname;
         private readonly int _configStartTTL;
 
-        private readonly ConcurrentDictionary<SubversePeerId, Task> _taskMap;
-        private readonly ConcurrentDictionary<SubversePeerId, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<SubversePeerId, HashSet<IPeerConnection>> _connectionMap;
         private readonly ConcurrentDictionary<string, string> _callerMap;
 
@@ -88,8 +86,6 @@ namespace Subverse.Server
             _sipTransport.SIPTransportRequestReceived += SipRequestReceived;
             _sipTransport.SIPTransportResponseReceived += SipResponseReceived;
 
-            _taskMap = new ConcurrentDictionary<SubversePeerId, Task>();
-            _ctsMap = new ConcurrentDictionary<SubversePeerId, CancellationTokenSource>();
             _connectionMap = new ConcurrentDictionary<SubversePeerId, HashSet<IPeerConnection>>();
             _callerMap = new ConcurrentDictionary<string, string>();
         }
@@ -118,22 +114,8 @@ namespace Subverse.Server
             return connectionId;
         }
 
-        public async Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken)
+        public Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken)
         {
-            _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
-            storedCts?.Dispose();
-
-            _taskMap.Remove(connectionId, out Task? storedTask);
-            try
-            {
-                if (storedTask is not null) await storedTask;
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, null);
-            }
-
             if (_connectionMap.TryRemove(connectionId, out HashSet<IPeerConnection>? storedConnections))
             {
                 storedConnections.Remove(connection);
@@ -160,6 +142,8 @@ namespace Subverse.Server
             {
                 connection.Dispose();
             }
+
+            return Task.CompletedTask;
         }
 
         public SubversePeer GetSelf()
