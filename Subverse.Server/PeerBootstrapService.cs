@@ -96,7 +96,11 @@ internal class PeerBootstrapService : BackgroundService
         {
             foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
             {
-                if (remoteEndPoint is null) continue;
+                if (remoteEndPoint is null) 
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5.0));
+                    continue;
+                }
 
                 try
                 {
