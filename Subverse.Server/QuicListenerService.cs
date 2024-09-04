@@ -89,7 +89,7 @@ namespace Subverse.Server
                         ServerCertificate = GetServerCertificate()
                     },
 
-                    KeepAliveInterval = TimeSpan.FromSeconds(1.0),
+                    KeepAliveInterval = TimeSpan.FromSeconds(5.0),
                 };
 
                 List<Task> listenTasks = new ();
