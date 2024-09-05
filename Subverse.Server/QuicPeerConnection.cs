@@ -83,7 +83,7 @@ namespace Subverse.Server
                     {
                         oldTask.Wait();
                     }
-                    catch (AggregateException ex) when (ex.InnerExceptions.Any(
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
                         x => x is QuicException ||
                         x is NotSupportedException ||
                         x is OperationCanceledException))
@@ -185,8 +185,11 @@ namespace Subverse.Server
 
                         Task.WhenAll(_taskMap.Values).Wait();
                     }
-                    catch (QuicException) { }
-                    catch (OperationCanceledException) { }
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
+                        x => x is QuicException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
+                    { }
                     finally
                     {
                         foreach (var (_, quicStream) in _quicStreamMap)
