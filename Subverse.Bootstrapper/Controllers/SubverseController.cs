@@ -8,7 +8,7 @@ using System.Text;
 namespace Subverse.Bootstrapper.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("/")]
     public class SubverseController : ControllerBase
     {
         private const string CACHE_KNOWN_PEERS_KEY = "knownPeers";
