@@ -150,7 +150,7 @@ namespace Subverse.Server
         {
             return new SubversePeer(
                     _configHostname,
-                    LocalEndPoint is null || RemoteEndPoint is null ? 
+                    LocalEndPoint is null || RemoteEndPoint is null ?
                     null : new UriBuilder()
                     {
                         Scheme = "subverse",
@@ -212,7 +212,8 @@ namespace Subverse.Server
 
             await RouteEntityAsync(peerId);
 
-            return await entityKeysSource.Task;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0));
+            return await entityKeysSource.Task.WaitAsync(cts.Token);
         }
 
         private async Task ProcessEntityAsync(IPeerConnection? connection, SubverseMessage message)
@@ -281,7 +282,16 @@ namespace Subverse.Server
             string toEntityStr = sipRequest.Header.To.ToURI.User;
             SubversePeerId toEntityId = SubversePeerId.FromString(toEntityStr);
 
-            EncryptionKeys entityKeys = await GetEntityKeysAsync(toEntityId);
+            EncryptionKeys entityKeys;
+            try
+            {
+                entityKeys = await GetEntityKeysAsync(toEntityId);
+            }
+            catch (OperationCanceledException) 
+            {
+                return;
+            }
+
             using (var pgp = new PGP(entityKeys))
             using (var bufferStream = new MemoryStream(sipRequest.GetBytes()))
             using (var encryptStream = new MemoryStream())
@@ -306,7 +316,15 @@ namespace Subverse.Server
             }
 
             SubversePeerId fromEntityId = SubversePeerId.FromString(fromEntityStr);
-            EncryptionKeys entityKeys = await GetEntityKeysAsync(fromEntityId);
+            EncryptionKeys entityKeys;
+            try
+            {
+                entityKeys = await GetEntityKeysAsync(fromEntityId);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
 
             using (var pgp = new PGP(entityKeys))
             using (var bufferStream = new MemoryStream(sipResponse.GetBytes()))
