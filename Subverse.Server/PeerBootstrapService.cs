@@ -34,9 +34,9 @@ internal class PeerBootstrapService : BackgroundService
         _logger = logger;
         _peerService = hubService;
 
-        _http = new HttpClient() { BaseAddress = new(_configApiUrl) };
+        _http = new HttpClient() { BaseAddress = new(_configApiUrl), Timeout = TimeSpan.FromSeconds(120.0) };
 
-        _connectionMap = new ();
+        _connectionMap = new();
     }
 
     private async Task<IEnumerable<(string hostname, IPEndPoint? remoteEndpoint)>> BootstrapSelfAsync()
@@ -44,16 +44,23 @@ internal class PeerBootstrapService : BackgroundService
         var selfJsonStr = JsonConvert.SerializeObject(_peerService.GetSelf());
         var selfJsonContent = new StringContent(selfJsonStr, Encoding.UTF8, MediaTypeNames.Application.Json);
 
-        using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
-        var apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
+        SubversePeer[]? apiResponseArray = null;
+        try
+        {
+            using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
+            apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
+        }
+        catch (HttpRequestException) { }
+        catch (System.Text.Json.JsonException) { }
+        catch (OperationCanceledException) { }
 
         var validPeerHostnames = (apiResponseArray ?? [])
             .Select(peer => peer.Hostname);
 
         var validPeerEndpoints = (apiResponseArray ?? [])
-            .Select(peer => 
+            .Select(peer =>
             {
-                if (!string.IsNullOrWhiteSpace(peer.ServiceUri)) 
+                if (!string.IsNullOrWhiteSpace(peer.ServiceUri))
                 {
                     try
                     {
@@ -63,7 +70,7 @@ internal class PeerBootstrapService : BackgroundService
                 }
                 return null;
             })
-            .Select(uri => 
+            .Select(uri =>
             {
                 if (uri is not null)
                 {
@@ -90,15 +97,21 @@ internal class PeerBootstrapService : BackgroundService
         {
             foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
             {
-                if (remoteEndPoint is null) continue;
+                if (remoteEndPoint is null) 
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30.0));
+                    continue;
+                }
 
                 try
                 {
                     stoppingToken.ThrowIfCancellationRequested();
 
-                    if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) && 
-                        currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId)) 
+                    if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
+                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId))
                     {
+                        _connectionMap.TryRemove(hostname, out IPeerConnection? _);
+                        await Task.Delay(TimeSpan.FromSeconds(30.0));
                         continue;
                     }
 
@@ -125,17 +138,17 @@ internal class PeerBootstrapService : BackgroundService
                             }, cts.Token);
 
                         var peerConnection = new QuicPeerConnection(quicConnection);
-                        _connectionMap.AddOrUpdate(hostname, peerConnection, 
-                            (key, oldConnection) => 
+                        _connectionMap.AddOrUpdate(hostname, peerConnection,
+                            (key, oldConnection) =>
                             {
                                 oldConnection.Dispose();
                                 return peerConnection;
                             });
 
-                        await _peerService.OpenConnectionAsync(peerConnection, 
+                        await _peerService.OpenConnectionAsync(peerConnection,
                             new SubverseMessage(
-                                _peerService.ConnectionId, 
-                                0, ProtocolCode.Command, []), 
+                                _peerService.ConnectionId,
+                                0, ProtocolCode.Command, []),
                             cts.Token);
                     }
                 }
@@ -145,7 +158,7 @@ internal class PeerBootstrapService : BackgroundService
                     _logger.LogError(ex, null);
                 }
 
-                await Task.Delay(5000);
+                await Task.Delay(TimeSpan.FromSeconds(30.0));
             }
         }
 

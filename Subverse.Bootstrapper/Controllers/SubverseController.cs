@@ -8,7 +8,7 @@ using System.Text;
 namespace Subverse.Bootstrapper.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("/")]
     public class SubverseController : ControllerBase
     {
         private const string CACHE_KNOWN_PEERS_KEY = "knownPeers";
@@ -30,15 +30,15 @@ namespace Subverse.Bootstrapper.Controllers
             _logger = logger;
         }
 
-        private async Task<IEnumerable<T>> AppendWithLockAsync<T>(string key, T value)
+        private async Task<IEnumerable<T>> AppendWithLockAsync<T>(string key, T value, CancellationToken cancellationToken)
         {
             string lockKey = $"{CACHE_LOCK_KEY}{key}";
             string? lockValue = await _cache.GetStringAsync($"{CACHE_LOCK_KEY}{key}");
 
             // wait for lock to expire
-            while (lockValue is not null)
+            for (int i = 0; i < 10 && lockValue is not null; i++)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(CACHE_LOCK_WAIT_MS));
+                await Task.Delay(TimeSpan.FromMilliseconds(CACHE_LOCK_WAIT_MS), cancellationToken);
                 lockValue = await _cache.GetStringAsync(lockKey);
             }
 
@@ -78,7 +78,7 @@ namespace Subverse.Bootstrapper.Controllers
                     new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(1.0) });
 
                 var allPeerKeys = await AppendWithLockAsync(
-                    CACHE_KNOWN_PEERS_KEY, thisPeerKey
+                    CACHE_KNOWN_PEERS_KEY, thisPeerKey, cancellationToken
                     );
                 return allPeerKeys
                     .Where(otherPeerKey => otherPeerKey != thisPeerKey)

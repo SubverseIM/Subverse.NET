@@ -7,6 +7,7 @@ using Subverse.Models;
 using Subverse.Types;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Quic;
 using System.Text;
 
 using static Subverse.Models.SubverseMessage;
@@ -20,14 +21,11 @@ namespace Subverse.Server
 
         private readonly IConfiguration _configuration;
         private readonly ILogger<RoutedPeerService> _logger;
-        private readonly IMessageQueue<string> _messageQueue;
         private readonly IPgpKeyProvider _keyProvider;
 
         private readonly string _configHostname;
         private readonly int _configStartTTL;
 
-        private readonly ConcurrentDictionary<SubversePeerId, Task> _taskMap;
-        private readonly ConcurrentDictionary<SubversePeerId, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<SubversePeerId, HashSet<IPeerConnection>> _connectionMap;
         private readonly ConcurrentDictionary<string, string> _callerMap;
 
@@ -45,7 +43,6 @@ namespace Subverse.Server
         public RoutedPeerService(
             IConfiguration configuration,
             ILogger<RoutedPeerService> logger,
-            IMessageQueue<string> messageQueue,
             IPgpKeyProvider keyProvider)
         {
             _configuration = configuration;
@@ -59,7 +56,6 @@ namespace Subverse.Server
             QuicPeerConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _logger = logger;
-            _messageQueue = messageQueue;
             _keyProvider = keyProvider;
 
             if (!_keyProvider.GetPublicKeyFile().Exists || !_keyProvider.GetPrivateKeyFile().Exists)
@@ -90,16 +86,8 @@ namespace Subverse.Server
             _sipTransport.SIPTransportRequestReceived += SipRequestReceived;
             _sipTransport.SIPTransportResponseReceived += SipResponseReceived;
 
-            _taskMap = new ConcurrentDictionary<SubversePeerId, Task>();
-            _ctsMap = new ConcurrentDictionary<SubversePeerId, CancellationTokenSource>();
             _connectionMap = new ConcurrentDictionary<SubversePeerId, HashSet<IPeerConnection>>();
             _callerMap = new ConcurrentDictionary<string, string>();
-
-            // Schedule queue flushing job
-            RecurringJob.AddOrUpdate(
-                "Subverse.Server.RoutedHubService.FlushMessagesAsync",
-                () => FlushMessagesAsync(CancellationToken.None),
-                Cron.Minutely);
         }
 
         public async Task<SubversePeerId> OpenConnectionAsync(IPeerConnection peerConnection, SubverseMessage? message, CancellationToken cancellationToken)
@@ -123,53 +111,11 @@ namespace Subverse.Server
                     }
                 });
 
-
-            // Immediately send all messages we've cached for this particular entity (in the background)
-            var newCts = new CancellationTokenSource();
-            _ctsMap.AddOrUpdate(connectionId, newCts,
-                (key, oldCts) =>
-                {
-                    oldCts.Dispose();
-                    return newCts;
-                });
-
-            Func<SubversePeerId, Task> newTaskFactory = (key) =>
-                Task.Run(() => FlushMessagesAsync(key, newCts.Token));
-
-            _ = _taskMap.AddOrUpdate(connectionId, newTaskFactory, (key, oldTask) =>
-                {
-                    try
-                    {
-                        oldTask.Wait();
-                    }
-                    catch (OperationCanceledException) { }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex.Message);
-                    }
-
-                    return newTaskFactory(key);
-                });
-
             return connectionId;
         }
 
-        public async Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken)
+        public Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken)
         {
-            _ctsMap.Remove(connectionId, out CancellationTokenSource? storedCts);
-            storedCts?.Dispose();
-
-            _taskMap.Remove(connectionId, out Task? storedTask);
-            try
-            {
-                if (storedTask is not null) await storedTask;
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, null);
-            }
-
             if (_connectionMap.TryRemove(connectionId, out HashSet<IPeerConnection>? storedConnections))
             {
                 storedConnections.Remove(connection);
@@ -196,34 +142,8 @@ namespace Subverse.Server
             {
                 connection.Dispose();
             }
-        }
 
-        public async Task FlushMessagesAsync(SubversePeerId connectionId, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
-
-            while (message is not null)
-            {
-                await RouteMessageAsync(message);
-
-                cancellationToken.ThrowIfCancellationRequested();
-                message = await _messageQueue.DequeueByKeyAsync(connectionId.ToString());
-            }
-        }
-
-        public async Task FlushMessagesAsync(CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var keyedMessage = await _messageQueue.DequeueAsync();
-
-            while (keyedMessage is not null)
-            {
-                await RouteMessageAsync(keyedMessage.Message);
-
-                cancellationToken.ThrowIfCancellationRequested();
-                keyedMessage = await _messageQueue.DequeueAsync();
-            }
+            return Task.CompletedTask;
         }
 
         public SubversePeer GetSelf()
@@ -311,10 +231,14 @@ namespace Subverse.Server
             {
                 if (connection is not null)
                 {
-                    await OpenConnectionAsync(connection, 
-                        new SubverseMessage(theirCookie.Key,
-                            0, ProtocolCode.Command, []),
-                        default);
+                    try
+                    {
+                        await OpenConnectionAsync(connection,
+                            new SubverseMessage(theirCookie.Key,
+                                0, ProtocolCode.Command, []),
+                            default);
+                    }
+                    catch (QuicException) { }
                 }
 
                 await RouteEntityAsync(theirCookie.Key);
@@ -417,13 +341,6 @@ namespace Subverse.Server
                         Task.Run(() => x.SendMessage(nextHopMessage))
                         ).ToHashSet();
                 }
-            }
-            // Otherwise, if this message has a valid TTL value...
-            else if (message.TimeToLive >= 0)
-            {
-                // Our only hopes of contacting this peer have run out!! For now...
-                // Queue this message for future delivery.
-                await _messageQueue.EnqueueAsync(message.Recipient.ToString(), message);
             }
         }
     }

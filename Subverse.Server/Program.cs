@@ -6,21 +6,12 @@ using Subverse.Server;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// Hangfire
-GlobalConfiguration.Configuration
-                .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-                .UseColouredConsoleLogProvider()
-                .UseSimpleAssemblyNameTypeSerializer()
-                .UseRecommendedSerializerSettings()
-                .UseMemoryStorage();
-
 // Helpers
 builder.Configuration.AddEnvironmentVariables("Subverse_");
 builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
 
 // Mission-critical
 builder.Services.AddSingleton<IPeerService, RoutedPeerService>();
-builder.Services.AddSingleton<IMessageQueue<string>, PersistentMessageQueue>();
 
 // Main
 builder.Services.AddHostedService<QuicListenerService>();
