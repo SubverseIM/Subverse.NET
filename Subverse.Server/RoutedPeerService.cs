@@ -1,5 +1,4 @@
-﻿using Hangfire;
-using PgpCore;
+﻿using PgpCore;
 using SIPSorcery.SIP;
 using Subverse.Abstractions;
 using Subverse.Implementations;
@@ -16,6 +15,8 @@ namespace Subverse.Server
 {
     internal class RoutedPeerService : IPeerService
     {
+        private static readonly TimeSpan DEFAULT_ENTITY_WAIT_TIMEOUT = TimeSpan.FromSeconds(15.0);
+
         private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
         private const int DEFAULT_CONFIG_START_TTL = 99;
 
@@ -138,7 +139,7 @@ namespace Subverse.Server
                 .SelectMany(x => x)
                 .ToHashSet();
 
-            if (allConnections.Contains(connection))
+            if (!allConnections.Contains(connection))
             {
                 connection.Dispose();
             }
@@ -212,7 +213,7 @@ namespace Subverse.Server
 
             await RouteEntityAsync(peerId);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0));
+            using var cts = new CancellationTokenSource(DEFAULT_ENTITY_WAIT_TIMEOUT);
             return await entityKeysSource.Task.WaitAsync(cts.Token);
         }
 
@@ -239,7 +240,7 @@ namespace Subverse.Server
                                 0, ProtocolCode.Command, []),
                             default);
                     }
-                    catch (QuicException) { }
+                    catch (QuicException ex) { _logger.LogError(ex, null); }
                 }
 
                 await RouteEntityAsync(theirCookie.Key);
@@ -261,12 +262,13 @@ namespace Subverse.Server
             try
             {
                 request = SIPRequest.ParseSIPRequest(Encoding.UTF8.GetString(messageBytes));
-                request.Header.From.FromURI.Host = "subverse";
-
-                messageBytes = request.GetBytes();
 
                 string fromEntityStr = request.Header.From.FromURI.User;
-                _callerMap.TryAdd(request.Header.CallId, fromEntityStr);
+                _callerMap.AddOrUpdate(request.Header.CallId, fromEntityStr,
+                    (callId, oldEntityStr) => fromEntityStr);
+
+                request.Header.From.FromURI.Host = "subverse";
+                messageBytes = request.GetBytes();
             }
             catch (SIPValidationException) { }
 
@@ -287,8 +289,9 @@ namespace Subverse.Server
             {
                 entityKeys = await GetEntityKeysAsync(toEntityId);
             }
-            catch (OperationCanceledException) 
+            catch (OperationCanceledException ex)
             {
+                _logger.LogError(ex, null);
                 return;
             }
 
@@ -321,8 +324,9 @@ namespace Subverse.Server
             {
                 entityKeys = await GetEntityKeysAsync(fromEntityId);
             }
-            catch (OperationCanceledException)
-            {
+            catch (OperationCanceledException ex) 
+            { 
+                _logger.LogError(ex, null);
                 return;
             }
 
@@ -344,14 +348,16 @@ namespace Subverse.Server
         {
             if (message.TimeToLive < 0)
             {
-                await RouteMessageAsync(message with { TimeToLive = _configStartTTL });
+                await RouteMessageAsync(message with 
+                    { TimeToLive = _configStartTTL });
             }
-            else if (
-                message.TimeToLive >= 0 &&
+            else if (message.TimeToLive >= 0 &&
                 _connectionMap.TryGetValue(message.Recipient,
-                    out HashSet<IPeerConnection>? connections))
+                out HashSet<IPeerConnection>? connections))
             {
-                SubverseMessage nextHopMessage = message with { TimeToLive = message.TimeToLive - 1 };
+                SubverseMessage nextHopMessage = message with 
+                    { TimeToLive = message.TimeToLive - 1 };
+
                 HashSet<Task> allTasks;
                 lock (connections)
                 {
@@ -359,6 +365,13 @@ namespace Subverse.Server
                         Task.Run(() => x.SendMessage(nextHopMessage))
                         ).ToHashSet();
                 }
+
+                try
+                {
+                    await Task.WhenAll(allTasks);
+                }
+                catch (QuicException ex) { _logger.LogError(ex, null); }
+                catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
             }
         }
     }
