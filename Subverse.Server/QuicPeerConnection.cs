@@ -83,8 +83,9 @@ namespace Subverse.Server
                     {
                         oldTask.Wait();
                     }
-                    catch (QuicException) { }
-                    catch (OperationCanceledException) { }
+                    catch (AggregateException ex) when (ex.InnerExceptions.Any(
+                        x => x is QuicException || x is OperationCanceledException)) 
+                    { }
                     
                     return newTask;
                 });
