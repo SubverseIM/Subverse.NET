@@ -48,7 +48,7 @@ namespace Subverse.Server
             {
                 newQuicStream = await _quicConnection.AcceptInboundStreamAsync(cancellationToken);
 
-                newCts = new ();
+                newCts = new();
                 newTask = RecieveAsync(newQuicStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task;
@@ -84,9 +84,11 @@ namespace Subverse.Server
                         oldTask.Wait();
                     }
                     catch (AggregateException ex) when (ex.InnerExceptions.Any(
-                        x => x is QuicException || x is OperationCanceledException)) 
+                        x => x is QuicException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
                     { }
-                    
+
                     return newTask;
                 });
 
@@ -97,7 +99,7 @@ namespace Subverse.Server
                     return newQuicStream;
                 });
 
-            if (message is not null) 
+            if (message is not null)
             {
                 SendMessage(message);
             }
@@ -140,9 +142,9 @@ namespace Subverse.Server
         public void SendMessage(SubverseMessage message)
         {
             QuicStream quicStream = _quicStreamMap[message.Recipient];
-            if (quicStream.CanWrite)
+            lock (quicStream)
             {
-                lock (quicStream)
+                if (!quicStream.WritesClosed.IsCompleted)
                 {
                     using (var bsonWriter = new BsonDataWriter(quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
                     {
@@ -151,16 +153,15 @@ namespace Subverse.Server
                     }
                 }
             }
-            else { throw new NotSupportedException(); }
         }
 
-        public bool HasValidConnectionTo(SubversePeerId peerId) 
+        public bool HasValidConnectionTo(SubversePeerId peerId)
         {
             if (_quicStreamMap.TryGetValue(peerId, out QuicStream? quicStream))
             {
                 return !quicStream.ReadsClosed.IsCompleted;
             }
-            else 
+            else
             {
                 return false;
             }
