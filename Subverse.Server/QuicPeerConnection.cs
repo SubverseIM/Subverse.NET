@@ -48,7 +48,7 @@ namespace Subverse.Server
             {
                 newQuicStream = await _quicConnection.AcceptInboundStreamAsync(cancellationToken);
 
-                newCts = new ();
+                newCts = new();
                 newTask = RecieveAsync(newQuicStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task;
@@ -83,9 +83,12 @@ namespace Subverse.Server
                     {
                         oldTask.Wait();
                     }
-                    catch (QuicException) { }
-                    catch (OperationCanceledException) { }
-                    
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
+                        x => x is QuicException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
+                    { }
+
                     return newTask;
                 });
 
@@ -96,7 +99,7 @@ namespace Subverse.Server
                     return newQuicStream;
                 });
 
-            if (message is not null) 
+            if (message is not null)
             {
                 SendMessage(message);
             }
@@ -139,9 +142,9 @@ namespace Subverse.Server
         public void SendMessage(SubverseMessage message)
         {
             QuicStream quicStream = _quicStreamMap[message.Recipient];
-            if (quicStream.CanWrite)
+            lock (quicStream)
             {
-                lock (quicStream)
+                if (!quicStream.WritesClosed.IsCompleted)
                 {
                     using (var bsonWriter = new BsonDataWriter(quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
                     {
@@ -150,16 +153,15 @@ namespace Subverse.Server
                     }
                 }
             }
-            else { throw new NotSupportedException(); }
         }
 
-        public bool HasValidConnectionTo(SubversePeerId peerId) 
+        public bool HasValidConnectionTo(SubversePeerId peerId)
         {
             if (_quicStreamMap.TryGetValue(peerId, out QuicStream? quicStream))
             {
                 return !quicStream.ReadsClosed.IsCompleted;
             }
-            else 
+            else
             {
                 return false;
             }
@@ -183,8 +185,11 @@ namespace Subverse.Server
 
                         Task.WhenAll(_taskMap.Values).Wait();
                     }
-                    catch (QuicException) { }
-                    catch (OperationCanceledException) { }
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
+                        x => x is QuicException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
+                    { }
                     finally
                     {
                         foreach (var (_, quicStream) in _quicStreamMap)

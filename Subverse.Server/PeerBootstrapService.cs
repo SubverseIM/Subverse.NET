@@ -16,9 +16,9 @@ using static Subverse.Models.SubverseMessage;
 
 internal class PeerBootstrapService : BackgroundService
 {
-    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_PERIOD = TimeSpan.FromSeconds(10.0);
-    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_TIMEOUT = TimeSpan.FromSeconds(5.0);
-    private static readonly TimeSpan DEFAULT_BOOTSTRAP_REQUEST_TIMEOUT = TimeSpan.FromSeconds(15.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_PERIOD = TimeSpan.FromSeconds(30.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_TIMEOUT = TimeSpan.FromSeconds(10.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_REQUEST_TIMEOUT = TimeSpan.FromSeconds(90.0);
 
     private const string DEFAULT_CONFIG_BOOTSTRAP_API = "https://subverse.network/";
 
@@ -129,7 +129,7 @@ internal class PeerBootstrapService : BackgroundService
                 // Try connection w/ timeout
                 try
                 {
-                    using CancellationTokenSource cts = new (DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
+                    using CancellationTokenSource cts = new(DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
                     QuicConnection quicConnection = await QuicConnection.ConnectAsync(
                         new QuicClientConnectionOptions
                         {
@@ -149,7 +149,7 @@ internal class PeerBootstrapService : BackgroundService
                             KeepAliveInterval = TimeSpan.FromSeconds(1.0),
                         }, cts.Token);
 
-                    QuicPeerConnection peerConnection = new (quicConnection);
+                    QuicPeerConnection peerConnection = new(quicConnection);
                     _connectionMap.AddOrUpdate(hostname, peerConnection,
                         (key, oldConnection) =>
                         {
@@ -158,10 +158,11 @@ internal class PeerBootstrapService : BackgroundService
                             return peerConnection;
                         });
 
-                    await _peerService.OpenConnectionAsync(peerConnection, 
-                        new SubverseMessage(_peerService.ConnectionId, 
+                    await _peerService.OpenConnectionAsync(peerConnection,
+                        new SubverseMessage(_peerService.ConnectionId,
                         0, ProtocolCode.Command, []), cts.Token);
                 }
+                catch (QuicException ex) { _logger.LogError(ex, null); }
                 catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
             }
         }
