@@ -16,30 +16,47 @@ using static Subverse.Models.SubverseMessage;
 
 internal class PeerBootstrapService : BackgroundService
 {
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_PERIOD = TimeSpan.FromSeconds(10.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_TIMEOUT = TimeSpan.FromSeconds(5.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_REQUEST_TIMEOUT = TimeSpan.FromSeconds(15.0);
+
+    private const string DEFAULT_CONFIG_BOOTSTRAP_API = "https://subverse.network/";
+
     private readonly IConfiguration _configuration;
     private readonly ILogger<PeerBootstrapService> _logger;
     private readonly IPeerService _peerService;
 
-    private readonly ConcurrentDictionary<string, IPeerConnection> _connectionMap;
-    private readonly string _configApiUrl;
     private readonly HttpClient _http;
+    private readonly PeriodicTimer _timer;
+
+    private readonly ConcurrentDictionary<string, IPeerConnection> _connectionMap;
+
+    private readonly string _configApiUrl;
+
+    private bool disposedValue;
 
     public PeerBootstrapService(IConfiguration configuration, ILogger<PeerBootstrapService> logger, IPeerService hubService)
     {
         _configuration = configuration;
 
-        _configApiUrl = _configuration.GetConnectionString("BootstrapApi") ??
-            throw new ArgumentNullException(message: "Missing required ConnectionString from config: \"BootstrapApi\"", paramName: "configApiUrl");
+        _configApiUrl = _configuration.GetConnectionString("BootstrapApi") 
+            ?? DEFAULT_CONFIG_BOOTSTRAP_API;
 
         _logger = logger;
         _peerService = hubService;
 
-        _http = new HttpClient() { BaseAddress = new(_configApiUrl), Timeout = TimeSpan.FromSeconds(120.0) };
+        _http = new HttpClient()
+        {
+            BaseAddress = new(_configApiUrl),
+            Timeout = DEFAULT_BOOTSTRAP_REQUEST_TIMEOUT
+        };
+
+        _timer = new PeriodicTimer(DEFAULT_BOOTSTRAP_PEER_PERIOD);
 
         _connectionMap = new();
     }
 
-    private async Task<IEnumerable<(string hostname, IPEndPoint? remoteEndpoint)>> BootstrapSelfAsync()
+    private async Task<IEnumerable<(string hostname, IPEndPoint? remoteEndpoint)>> BootstrapSelfAsync(CancellationToken cancellationToken)
     {
         var selfJsonStr = JsonConvert.SerializeObject(_peerService.GetSelf());
         var selfJsonContent = new StringContent(selfJsonStr, Encoding.UTF8, MediaTypeNames.Application.Json);
@@ -47,8 +64,8 @@ internal class PeerBootstrapService : BackgroundService
         SubversePeer[]? apiResponseArray = null;
         try
         {
-            using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent);
-            apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>();
+            using var apiResponseMessage = await _http.PostAsync("ping", selfJsonContent, cancellationToken);
+            apiResponseArray = await apiResponseMessage.Content.ReadFromJsonAsync<SubversePeer[]>(cancellationToken);
         }
         catch (HttpRequestException) { }
         catch (System.Text.Json.JsonException) { }
@@ -95,73 +112,80 @@ internal class PeerBootstrapService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync())
+            stoppingToken.ThrowIfCancellationRequested();
+
+            foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync(stoppingToken))
             {
-                if (remoteEndPoint is null) 
+                await _timer.WaitForNextTickAsync(stoppingToken);
+
+                if (remoteEndPoint is null ||
+                        _connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
+                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId) &&
+                        _connectionMap.TryRemove(hostname, out IPeerConnection? _))
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(30.0));
                     continue;
                 }
 
+                // Try connection w/ timeout
                 try
                 {
-                    stoppingToken.ThrowIfCancellationRequested();
+                    using CancellationTokenSource cts = new (DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
+                    QuicConnection quicConnection = await QuicConnection.ConnectAsync(
+                        new QuicClientConnectionOptions
+                        {
+                            RemoteEndPoint = remoteEndPoint,
 
-                    if (_connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
-                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId))
-                    {
-                        _connectionMap.TryRemove(hostname, out IPeerConnection? _);
-                        await Task.Delay(TimeSpan.FromSeconds(30.0));
-                        continue;
-                    }
+                            DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
+                            DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
 
-                    // Try connection w/ 5 second timeout
-                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0)))
-                    {
-                        var quicConnection = await QuicConnection.ConnectAsync(
-                            new QuicClientConnectionOptions
+                            ClientAuthenticationOptions = new()
                             {
-                                RemoteEndPoint = remoteEndPoint,
+                                ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
+                                TargetHost = hostname,
+                            },
 
-                                DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
-                                DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
+                            MaxInboundBidirectionalStreams = 64,
 
-                                ClientAuthenticationOptions = new()
-                                {
-                                    ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
-                                    TargetHost = hostname,
-                                },
+                            KeepAliveInterval = TimeSpan.FromSeconds(1.0),
+                        }, cts.Token);
 
-                                MaxInboundBidirectionalStreams = 64,
+                    QuicPeerConnection peerConnection = new (quicConnection);
+                    _connectionMap.AddOrUpdate(hostname, peerConnection,
+                        (key, oldConnection) =>
+                        {
+                            _peerService.CloseConnectionAsync(oldConnection,
+                                _peerService.ConnectionId, cts.Token).Wait();
+                            return peerConnection;
+                        });
 
-                                KeepAliveInterval = TimeSpan.FromSeconds(1.0),
-                            }, cts.Token);
-
-                        var peerConnection = new QuicPeerConnection(quicConnection);
-                        _connectionMap.AddOrUpdate(hostname, peerConnection,
-                            (key, oldConnection) =>
-                            {
-                                oldConnection.Dispose();
-                                return peerConnection;
-                            });
-
-                        await _peerService.OpenConnectionAsync(peerConnection,
-                            new SubverseMessage(
-                                _peerService.ConnectionId,
-                                0, ProtocolCode.Command, []),
-                            cts.Token);
-                    }
+                    await _peerService.OpenConnectionAsync(peerConnection, 
+                        new SubverseMessage(_peerService.ConnectionId, 
+                        0, ProtocolCode.Command, []), cts.Token);
                 }
-                catch (OperationCanceledException) { }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, null);
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(30.0));
+                catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
             }
         }
+    }
 
-        _http.Dispose();
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                _connectionMap.Clear();
+
+                _http.Dispose();
+                _timer.Dispose();
+            }
+
+            disposedValue = true;
+        }
+    }
+
+    public override void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }

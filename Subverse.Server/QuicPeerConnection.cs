@@ -83,7 +83,9 @@ namespace Subverse.Server
                     {
                         oldTask.Wait();
                     }
+                    catch (QuicException) { }
                     catch (OperationCanceledException) { }
+                    
                     return newTask;
                 });
 
@@ -181,6 +183,8 @@ namespace Subverse.Server
 
                         Task.WhenAll(_taskMap.Values).Wait();
                     }
+                    catch (QuicException) { }
+                    catch (OperationCanceledException) { }
                     finally
                     {
                         foreach (var (_, quicStream) in _quicStreamMap)
