@@ -11,9 +11,9 @@ namespace Subverse.Bootstrapper.Controllers
     [Route("/")]
     public class SubverseController : ControllerBase
     {
-        private const string CACHE_KNOWN_PEERS_KEY = "KNOWN_PEERS";
+        private const string CACHE_KNOWN_PEERS_KEY = "knownPeers";
 
-        private const string CACHE_LOCK_KEY = "LOCK_";
+        private const string CACHE_LOCK_KEY = "__lock__";
         private const int CACHE_LOCK_EXPIRE_MS = 70;
         private const int CACHE_LOCK_WAIT_MS = CACHE_LOCK_EXPIRE_MS + CACHE_LOCK_EXPIRE_MS / 2;
 
@@ -69,15 +69,15 @@ namespace Subverse.Bootstrapper.Controllers
             {
                 _logger.LogInformation($"Accepting request from host: {thisPeer.Hostname}");
 
-                string thisPeerKey = thisPeer.Hostname;
-                string thisPeerJsonStr = JsonConvert.SerializeObject(
+                var thisPeerKey = thisPeer.Hostname;
+                var thisPeerJsonStr = JsonConvert.SerializeObject(
                     thisPeer with { MostRecentlySeenOn = DateTime.UtcNow }
                     );
 
                 await _cache.SetStringAsync(thisPeerKey, thisPeerJsonStr,
-                    new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromSeconds(90.0) });
+                    new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(1.0) });
 
-                IEnumerable<string> allPeerKeys = await AppendWithLockAsync(
+                var allPeerKeys = await AppendWithLockAsync(
                     CACHE_KNOWN_PEERS_KEY, thisPeerKey, cancellationToken
                     );
                 return allPeerKeys
@@ -92,7 +92,7 @@ namespace Subverse.Bootstrapper.Controllers
                         {
                             try
                             {
-                                Uri uri = new (peer.ServiceUri);
+                                var uri = new Uri(peer.ServiceUri);
                                 return uri.Port >= 0 && uri.DnsSafeHost.Any();
                             }
                             catch (UriFormatException) { }

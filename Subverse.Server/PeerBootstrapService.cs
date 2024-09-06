@@ -16,9 +16,9 @@ using static Subverse.Models.SubverseMessage;
 
 internal class PeerBootstrapService : BackgroundService
 {
-    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_PERIOD = TimeSpan.FromSeconds(15.0);
-    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_TIMEOUT = TimeSpan.FromSeconds(5.0);
-    private static readonly TimeSpan DEFAULT_BOOTSTRAP_REQUEST_TIMEOUT = TimeSpan.FromSeconds(45.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_PERIOD = TimeSpan.FromSeconds(30.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_PEER_TIMEOUT = TimeSpan.FromSeconds(10.0);
+    private static readonly TimeSpan DEFAULT_BOOTSTRAP_REQUEST_TIMEOUT = TimeSpan.FromSeconds(90.0);
 
     private const string DEFAULT_CONFIG_BOOTSTRAP_API = "https://subverse.network/";
 
