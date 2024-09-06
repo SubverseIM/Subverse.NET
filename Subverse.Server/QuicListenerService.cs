@@ -3,7 +3,6 @@ using Subverse.Types;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
-using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 
