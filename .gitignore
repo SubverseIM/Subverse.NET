@@ -361,11 +361,13 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+keys/
+*.password
+
 /Subverse.Server/server
 /Subverse.Server/appsettings.json
 /Subverse.Bootstrapper/appsettings.json
 /Subverse.Server/Properties/launchSettings.json
-/Subverse.Client/session_prv.asc
-/Subverse.Client/session_pub.asc
-*.password
 /Subverse.Server/appsettings.json
+

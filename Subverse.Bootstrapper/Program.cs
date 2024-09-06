@@ -1,3 +1,5 @@
+using Microsoft.Extensions.FileProviders;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -6,6 +8,8 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddDirectoryBrowser();
 
 var app = builder.Build();
 
@@ -18,8 +22,18 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 
-app.UseDefaultFiles(new DefaultFilesOptions() { RedirectToAppendTrailingSlash = false });
+app.UseDefaultFiles(new DefaultFilesOptions() { RedirectToAppendTrailingSlash = true });
+
+var fileProvider = new PhysicalFileProvider(Path.Combine(builder.Environment.WebRootPath, "trust"));
+var requestPath = "/trust";
+
 app.UseStaticFiles();
+
+app.UseDirectoryBrowser(new DirectoryBrowserOptions
+{
+    FileProvider = fileProvider,
+    RequestPath = requestPath
+});
 
 app.MapControllers();
 
