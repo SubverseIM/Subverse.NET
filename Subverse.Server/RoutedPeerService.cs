@@ -350,10 +350,8 @@ namespace Subverse.Server
                 { TimeToLive = message.TimeToLive - 1 };
 
                 allTasks = connections.Select(connection =>
-                    Task.Run(async () =>
+                    Task.Run(() =>
                     {
-                        await Task.Yield();
-
                         try
                         {
                             cancellationToken.ThrowIfCancellationRequested();
