@@ -211,9 +211,8 @@ namespace Subverse.Server
             {
                 entityKeysSource = _entityKeysSources.GetOrAdd(peerId,
                     new TaskCompletionSource<EncryptionKeys>());
+                await RouteEntityAsync(peerId);
             }
-
-            await RouteEntityAsync(peerId);
 
             using var cts = new CancellationTokenSource(DEFAULT_ENTITY_WAIT_TIMEOUT);
             return await entityKeysSource.Task.WaitAsync(cts.Token);
@@ -231,10 +230,8 @@ namespace Subverse.Server
                 _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
             }
 
-            if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
-            {
-                await RouteEntityAsync(theirCookie.Key);
-            }
+            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
+            await RouteEntityAsync(theirCookie.Key);
         }
 
         private async Task ProcessSipMessageAsync(IPeerConnection? connection, SubverseMessage message)
