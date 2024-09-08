@@ -135,17 +135,7 @@ namespace Subverse.Server
                         });
                 }
             }
-
-            HashSet<IPeerConnection> allConnections =
-                _connectionMap.Values.FlattenWithLock<
-                    HashSet<IPeerConnection>,
-                    IPeerConnection>().ToHashSet();
-
-            if (!allConnections.Contains(connection))
-            {
-                connection.Dispose();
-            }
-
+            
             return Task.CompletedTask;
         }
 
