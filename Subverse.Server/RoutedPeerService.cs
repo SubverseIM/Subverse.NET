@@ -224,8 +224,18 @@ namespace Subverse.Server
                 _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
             }
 
-            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
-            await RouteEntityAsync(theirCookie.Key);
+            if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
+            {
+                if (connection is not null) 
+                {
+                    await OpenConnectionAsync(connection, 
+                        new SubverseMessage(theirCookie.Key,
+                        _configStartTTL, ProtocolCode.Command, []
+                        ));
+                }
+
+                await RouteEntityAsync(theirCookie.Key);
+            }
         }
 
         private async Task ProcessSipMessageAsync(IPeerConnection? connection, SubverseMessage message)
