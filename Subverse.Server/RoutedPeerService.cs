@@ -378,10 +378,6 @@ namespace Subverse.Server
                         try
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            await OpenConnectionAsync(connection,
-                                new SubverseMessage(PeerId, 0,
-                                ProtocolCode.Command, []),
-                                cancellationToken);
                             connection.SendMessage(nextHopMessage);
                         }
                         catch (QuicException ex)
