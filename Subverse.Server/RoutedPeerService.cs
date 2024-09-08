@@ -351,7 +351,7 @@ namespace Subverse.Server
             if (message.TimeToLive <= 0) return;
 
             HashSet<IPeerConnection>? connections;
-            if (!_connectionMap.TryGetValue(message.Recipient, 
+            if (!_connectionMap.TryGetValue(message.Recipient,
                 out connections) || connections.Count == 0)
             {
                 connections = _connectionMap.Values
@@ -361,46 +361,37 @@ namespace Subverse.Server
                     .ToHashSet();
             }
 
-            Task<(IPeerConnection, SubversePeerId)> resultTask;
-            using (CancellationTokenSource cts = new())
+            using CancellationTokenSource cts = new();
+            CancellationToken cancellationToken = cts.Token;
+
+            HashSet<Task> allTasks;
+            lock (connections)
             {
-                CancellationToken cancellationToken = cts.Token;
+                SubverseMessage nextHopMessage = message with
+                { TimeToLive = message.TimeToLive - 1 };
 
-                HashSet<Task<(IPeerConnection, SubversePeerId)>> allTasks;
-                lock (connections)
-                {
-                    SubverseMessage nextHopMessage = message with
-                    { TimeToLive = message.TimeToLive - 1 };
+                allTasks = connections.Select(connection =>
+                    Task.Run(async () =>
+                    {
+                        await Task.Yield();
 
-                    allTasks = connections.Select(connection =>
-                        Task.Run(async () =>
+                        try
                         {
-                            await Task.Yield();
-
-                            try
-                            {
-                                cancellationToken.ThrowIfCancellationRequested();
-                                connection.SendMessage(nextHopMessage);
-                            }
-                            catch (QuicException ex)
-                            { _logger.LogError(ex, null); }
-
-                            return (connection, nextHopMessage.Recipient);
-                        }, cancellationToken))
-                        .ToHashSet();
-                }
-
-                resultTask = await Task.WhenAny(allTasks);
-                // cts gets disposed here!! Implicit cancellation of any outstanding send tasks.
+                            cancellationToken.ThrowIfCancellationRequested();
+                            await OpenConnectionAsync(connection,
+                                new SubverseMessage(nextHopMessage.Recipient, 0,
+                                ProtocolCode.Command, []),
+                                cancellationToken);
+                            connection.SendMessage(nextHopMessage);
+                        }
+                        catch (QuicException ex)
+                        { _logger.LogError(ex, null); }
+                    }, cancellationToken))
+                    .ToHashSet();
             }
 
-            var (connection, peerId) = await resultTask;
-            await OpenConnectionAsync(connection,
-                new SubverseMessage(PeerId, 0,
-                ProtocolCode.Command, []),
-                default);
-            // Try to open an explicit subscription to the recipient's
-            // messages knowing that we successfully routed the message to this peer.
+            await Task.WhenAny(allTasks);
+            // cts gets disposed here!! Implicit cancellation of any outstanding send tasks.
         }
     }
 }
