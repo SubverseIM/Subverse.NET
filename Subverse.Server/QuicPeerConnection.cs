@@ -36,6 +36,97 @@ namespace Subverse.Server
             _initialMessageSource = new();
         }
 
+        private QuicStream? GetBestPeerStream(SubversePeerId peerId)
+        {
+            QuicStream? quicStream;
+            if (!_quicStreamMap.TryGetValue(peerId, out quicStream))
+            {
+                quicStream = _quicStreamMap.Values.SingleOrDefault();
+            }
+            return quicStream;
+        }
+
+        private Task RecieveAsync(QuicStream quicStream, CancellationToken cancellationToken)
+        {
+            return Task.Run(() =>
+            {
+                using var bsonReader = new BsonDataReader(quicStream)
+                {
+                    CloseInput = false,
+                    SupportMultipleContent = true,
+                };
+
+                var serializer = new JsonSerializer()
+                {
+                    TypeNameHandling = TypeNameHandling.Objects,
+                    Converters = { new PeerIdConverter() },
+                };
+
+                if (!quicStream.CanRead) throw new NotSupportedException();
+
+                while (!cancellationToken.IsCancellationRequested && quicStream.CanRead)
+                {
+                    var message = serializer.Deserialize<SubverseMessage>(bsonReader)
+                        ?? throw new InvalidOperationException(
+                            "Expected to recieve SubverseMessage, " +
+                            "got malformed data instead!");
+
+                    _initialMessageSource.TrySetResult(message);
+                    OnMessageRecieved(new MessageReceivedEventArgs(message));
+
+                    cancellationToken.ThrowIfCancellationRequested();
+                    bsonReader.Read();
+                }
+            }, cancellationToken);
+        }
+
+        protected virtual void OnMessageRecieved(MessageReceivedEventArgs ev)
+        {
+            MessageReceived?.Invoke(this, ev);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    try
+                    {
+                        foreach (var (_, cts) in _ctsMap)
+                        {
+                            if (!cts.IsCancellationRequested)
+                            {
+                                cts.Dispose();
+                            }
+                        }
+
+                        Task.WhenAll(_taskMap.Values).Wait();
+                    }
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
+                        x => x is QuicException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
+                    { }
+                    finally
+                    {
+                        foreach (var (_, quicStream) in _quicStreamMap)
+                        {
+                            quicStream.Dispose();
+                        }
+                    }
+                }
+
+                disposedValue = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
+        }
+
         public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
             QuicStream newQuicStream;
@@ -107,106 +198,40 @@ namespace Subverse.Server
             return recipient;
         }
 
-        protected virtual void OnMessageRecieved(MessageReceivedEventArgs ev)
-        {
-            MessageReceived?.Invoke(this, ev);
-        }
-
-        internal Task RecieveAsync(QuicStream quicStream, CancellationToken cancellationToken)
-        {
-            return Task.Run(() =>
-            {
-                using (var bsonReader = new BsonDataReader(quicStream) { CloseInput = false, SupportMultipleContent = true })
-                {
-                    var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new PeerIdConverter() } };
-                    while (!cancellationToken.IsCancellationRequested && quicStream.CanRead)
-                    {
-                        var message = serializer.Deserialize<SubverseMessage>(bsonReader)
-                            ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
-
-                        _initialMessageSource.TrySetResult(message);
-                        OnMessageRecieved(new MessageReceivedEventArgs(message));
-
-                        cancellationToken.ThrowIfCancellationRequested();
-                        bsonReader.Read();
-                    }
-                }
-            }, cancellationToken);
-        }
-
         public void SendMessage(SubverseMessage message)
         {
-            QuicStream? quicStream;
-            if (!_quicStreamMap.TryGetValue(message.Recipient, out quicStream)) 
+            QuicStream? quicStream = GetBestPeerStream(message.Recipient);
+            if (quicStream is null)
             {
-                quicStream = _quicStreamMap.Values.Single();
+                throw new InvalidOperationException("Suitable transport for this message could not be found.");
+            }
+            else if (!quicStream.CanWrite)
+            {
+                throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
             lock (quicStream)
             {
-                if (quicStream.CanWrite)
+                using var bsonWriter = new BsonDataWriter(quicStream)
                 {
-                    using (var bsonWriter = new BsonDataWriter(quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
-                    {
-                        var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Auto, Converters = { new PeerIdConverter() } };
-                        serializer.Serialize(bsonWriter, message);
-                    }
-                }
+                    CloseOutput = false,
+                    AutoCompleteOnClose = true,
+                };
+
+                var serializer = new JsonSerializer()
+                {
+                    TypeNameHandling = TypeNameHandling.Auto,
+                    Converters = { new PeerIdConverter() },
+                };
+
+                serializer.Serialize(bsonWriter, message);
             }
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
         {
-            if (_quicStreamMap.TryGetValue(peerId, out QuicStream? quicStream))
-            {
-                return !quicStream.ReadsClosed.IsCompleted;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposedValue)
-            {
-                if (disposing)
-                {
-                    try
-                    {
-                        foreach (var (_, cts) in _ctsMap)
-                        {
-                            if (!cts.IsCancellationRequested)
-                            {
-                                cts.Dispose();
-                            }
-                        }
-
-                        Task.WhenAll(_taskMap.Values).Wait();
-                    }
-                    catch (AggregateException ex) when (ex.InnerExceptions.All(
-                        x => x is QuicException ||
-                        x is NotSupportedException ||
-                        x is OperationCanceledException))
-                    { }
-                    finally
-                    {
-                        foreach (var (_, quicStream) in _quicStreamMap)
-                        {
-                            quicStream.Dispose();
-                        }
-                    }
-                }
-
-                disposedValue = true;
-            }
-        }
-
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
+            QuicStream? quicStream = GetBestPeerStream(peerId);
+            return quicStream?.CanRead & quicStream?.CanWrite ?? false;
         }
     }
 }
