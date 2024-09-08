@@ -351,7 +351,8 @@ namespace Subverse.Server
             if (message.TimeToLive <= 0) return;
 
             HashSet<IPeerConnection>? connections;
-            if (!_connectionMap.TryGetValue(message.Recipient, out connections))
+            if (!_connectionMap.TryGetValue(message.Recipient, 
+                out connections) || connections.Count == 0)
             {
                 connections = _connectionMap.Values
                     .FlattenWithLock<
