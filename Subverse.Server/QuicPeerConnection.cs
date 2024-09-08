@@ -136,7 +136,12 @@ namespace Subverse.Server
 
         public void SendMessage(SubverseMessage message)
         {
-            QuicStream quicStream = _quicStreamMap[message.Recipient];
+            QuicStream? quicStream;
+            if (!_quicStreamMap.TryGetValue(message.Recipient, out quicStream)) 
+            {
+                quicStream = _quicStreamMap.Values.Single();
+            }
+
             lock (quicStream)
             {
                 if (quicStream.CanWrite)
