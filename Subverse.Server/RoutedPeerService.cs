@@ -396,7 +396,7 @@ namespace Subverse.Server
 
             var (connection, peerId) = await resultTask;
             await OpenConnectionAsync(connection,
-                new SubverseMessage(peerId, 0,
+                new SubverseMessage(PeerId, 0,
                 ProtocolCode.Command, []),
                 default);
             // Try to open an explicit subscription to the recipient's
