@@ -379,7 +379,7 @@ namespace Subverse.Server
                         {
                             cancellationToken.ThrowIfCancellationRequested();
                             await OpenConnectionAsync(connection,
-                                new SubverseMessage(nextHopMessage.Recipient, 0,
+                                new SubverseMessage(PeerId, 0,
                                 ProtocolCode.Command, []),
                                 cancellationToken);
                             connection.SendMessage(nextHopMessage);
