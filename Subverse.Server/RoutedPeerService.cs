@@ -233,18 +233,6 @@ namespace Subverse.Server
 
             if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
             {
-                if (connection is not null)
-                {
-                    try
-                    {
-                        await OpenConnectionAsync(connection,
-                            new SubverseMessage(theirCookie.Key,
-                                0, ProtocolCode.Command, []),
-                            default);
-                    }
-                    catch (QuicException ex) { _logger.LogError(ex, null); }
-                }
-
                 await RouteEntityAsync(theirCookie.Key);
             }
         }
