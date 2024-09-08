@@ -136,14 +136,6 @@ namespace Subverse.Server
                 }
             }
 
-            if (!_connectionMap.Values.FlattenWithLock<
-                    HashSet<IPeerConnection>,
-                    IPeerConnection>()
-                    .Contains(connection)) 
-            {
-                connection.Dispose();
-            }
-
             return Task.CompletedTask;
         }
 
