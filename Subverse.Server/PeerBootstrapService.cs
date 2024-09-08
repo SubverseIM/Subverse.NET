@@ -110,62 +110,66 @@ internal class PeerBootstrapService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            stoppingToken.ThrowIfCancellationRequested();
-
-            foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync(stoppingToken))
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await _timer.WaitForNextTickAsync(stoppingToken);
+                stoppingToken.ThrowIfCancellationRequested();
 
-                if (remoteEndPoint is null ||
-                        _connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
-                        !currentPeerConnection.HasValidConnectionTo(_peerService.ConnectionId) &&
-                        _connectionMap.TryRemove(hostname, out IPeerConnection? _))
+                foreach (var (hostname, remoteEndPoint) in await BootstrapSelfAsync(stoppingToken))
                 {
-                    continue;
-                }
+                    await _timer.WaitForNextTickAsync(stoppingToken);
 
-                // Try connection w/ timeout
-                try
-                {
-                    using CancellationTokenSource cts = new(DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
-                    QuicConnection quicConnection = await QuicConnection.ConnectAsync(
-                        new QuicClientConnectionOptions
-                        {
-                            RemoteEndPoint = remoteEndPoint,
+                    if (remoteEndPoint is null ||
+                            _connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
+                            !currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
+                            _connectionMap.TryRemove(hostname, out IPeerConnection? _))
+                    {
+                        continue;
+                    }
 
-                            DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
-                            DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
-
-                            ClientAuthenticationOptions = new()
+                    // Try connection w/ timeout
+                    try
+                    {
+                        using CancellationTokenSource cts = new(DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
+                        QuicConnection quicConnection = await QuicConnection.ConnectAsync(
+                            new QuicClientConnectionOptions
                             {
-                                ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
-                                TargetHost = hostname,
-                            },
+                                RemoteEndPoint = remoteEndPoint,
 
-                            MaxInboundBidirectionalStreams = 64,
+                                DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
+                                DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
 
-                            KeepAliveInterval = TimeSpan.FromSeconds(1.0),
-                        }, cts.Token);
+                                ClientAuthenticationOptions = new()
+                                {
+                                    ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
+                                    TargetHost = hostname,
+                                },
 
-                    QuicPeerConnection peerConnection = new(quicConnection);
-                    _connectionMap.AddOrUpdate(hostname, peerConnection,
-                        (key, oldConnection) =>
-                        {
-                            _peerService.CloseConnectionAsync(oldConnection,
-                                _peerService.ConnectionId, cts.Token).Wait();
-                            return peerConnection;
-                        });
+                                MaxInboundBidirectionalStreams = 64,
 
-                    await _peerService.OpenConnectionAsync(peerConnection,
-                        new SubverseMessage(_peerService.ConnectionId,
-                        0, ProtocolCode.Command, []), cts.Token);
+                                KeepAliveInterval = TimeSpan.FromSeconds(1.0),
+                            }, cts.Token);
+
+                        QuicPeerConnection peerConnection = new(quicConnection);
+                        _connectionMap.AddOrUpdate(hostname, peerConnection,
+                            (key, oldConnection) =>
+                            {
+                                _peerService.CloseConnectionAsync(oldConnection,
+                                    _peerService.PeerId, cts.Token).Wait();
+                                return peerConnection;
+                            });
+
+                        await _peerService.OpenConnectionAsync(peerConnection,
+                            new SubverseMessage(_peerService.PeerId,
+                            0, ProtocolCode.Command, []), cts.Token);
+                    }
+                    catch (QuicException ex) { _logger.LogError(ex, null); }
+                    catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
                 }
-                catch (QuicException ex) { _logger.LogError(ex, null); }
-                catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
             }
-        }
+        } 
+        catch(OperationCanceledException) { }
     }
 
     protected virtual void Dispose(bool disposing)

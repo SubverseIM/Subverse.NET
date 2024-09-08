@@ -15,9 +15,9 @@ namespace Subverse.Server
 {
     internal class RoutedPeerService : IPeerService
     {
-        private static readonly TimeSpan DEFAULT_ENTITY_WAIT_TIMEOUT = TimeSpan.FromSeconds(15.0);
+        private static readonly TimeSpan DEFAULT_ENTITY_WAIT_TIMEOUT = TimeSpan.FromSeconds(30.0);
 
-        private const string DEFAULT_CONFIG_HOSTNAME = "default.subverse";
+        private const string DEFAULT_CONFIG_HOSTNAME = "anonymous.subverse.network";
         private const int DEFAULT_CONFIG_START_TTL = 99;
 
         private readonly IConfiguration _configuration;
@@ -39,7 +39,7 @@ namespace Subverse.Server
         public IPEndPoint? LocalEndPoint { get; set; }
         public IPEndPoint? RemoteEndPoint { get; set; }
 
-        public SubversePeerId ConnectionId { get; }
+        public SubversePeerId PeerId { get; }
 
         public RoutedPeerService(
             IConfiguration configuration,
@@ -76,9 +76,9 @@ namespace Subverse.Server
                 _keyProvider.GetPrivateKeyPassPhrase()
                 );
             _entityKeysSources = new();
-            ConnectionId = new(_myEntityKeys.PublicKey.GetFingerprint());
+            PeerId = new(_myEntityKeys.PublicKey.GetFingerprint());
 
-            _logger.LogInformation(ConnectionId.ToString());
+            _logger.LogInformation(PeerId.ToString());
 
             _sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
             _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
@@ -91,7 +91,8 @@ namespace Subverse.Server
             _callerMap = new ConcurrentDictionary<string, string>();
         }
 
-        public async Task<SubversePeerId> OpenConnectionAsync(IPeerConnection peerConnection, SubverseMessage? message, CancellationToken cancellationToken)
+        public async Task<SubversePeerId> OpenConnectionAsync(IPeerConnection peerConnection,
+            SubverseMessage? message, CancellationToken cancellationToken = default)
         {
             SubversePeerId connectionId = await peerConnection
                 .CompleteHandshakeAsync(message, cancellationToken);
@@ -115,14 +116,15 @@ namespace Subverse.Server
             return connectionId;
         }
 
-        public Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken)
+        public Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId peerId,
+            CancellationToken cancellationToken = default)
         {
-            if (_connectionMap.TryRemove(connectionId, out HashSet<IPeerConnection>? storedConnections))
+            if (_connectionMap.TryRemove(peerId, out HashSet<IPeerConnection>? storedConnections))
             {
                 storedConnections.Remove(connection);
                 if (storedConnections.Any())
                 {
-                    _connectionMap.AddOrUpdate(connectionId, storedConnections,
+                    _connectionMap.AddOrUpdate(peerId, storedConnections,
                         (key, existingConnections) =>
                         {
                             lock (existingConnections)
@@ -135,9 +137,9 @@ namespace Subverse.Server
             }
 
             HashSet<IPeerConnection> allConnections =
-                _connectionMap.Values
-                .SelectMany(x => x)
-                .ToHashSet();
+                _connectionMap.Values.FlattenWithLock<
+                    HashSet<IPeerConnection>,
+                    IPeerConnection>().ToHashSet();
 
             if (!allConnections.Contains(connection))
             {
@@ -165,7 +167,7 @@ namespace Subverse.Server
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
             var connection = sender as IPeerConnection;
-            if (!e.Message.Recipient.Equals(ConnectionId))
+            if (!e.Message.Recipient.Equals(PeerId))
             {
                 await RouteMessageAsync(e.Message);
             }
@@ -274,7 +276,7 @@ namespace Subverse.Server
 
             await _sipTransport.SendRawAsync(
                 _sipChannel.ListeningSIPEndPoint,
-                new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5067),
+                new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
                 messageBytes
                 );
         }
@@ -324,8 +326,8 @@ namespace Subverse.Server
             {
                 entityKeys = await GetEntityKeysAsync(fromEntityId);
             }
-            catch (OperationCanceledException ex) 
-            { 
+            catch (OperationCanceledException ex)
+            {
                 _logger.LogError(ex, null);
                 return;
             }
@@ -346,33 +348,58 @@ namespace Subverse.Server
 
         private async Task RouteMessageAsync(SubverseMessage message)
         {
-            if (message.TimeToLive < 0)
-            {
-                await RouteMessageAsync(message with 
-                    { TimeToLive = _configStartTTL });
-            }
-            else if (message.TimeToLive >= 0 &&
-                _connectionMap.TryGetValue(message.Recipient,
-                out HashSet<IPeerConnection>? connections))
-            {
-                SubverseMessage nextHopMessage = message with 
-                    { TimeToLive = message.TimeToLive - 1 };
+            if (message.TimeToLive <= 0) return;
 
-                HashSet<Task> allTasks;
+            HashSet<IPeerConnection>? connections;
+            if (!_connectionMap.TryGetValue(message.Recipient, out connections))
+            {
+                connections = _connectionMap.Values
+                    .FlattenWithLock<
+                        HashSet<IPeerConnection>,
+                        IPeerConnection>()
+                    .ToHashSet();
+            }
+
+            Task<(IPeerConnection, SubversePeerId)> resultTask;
+            using (CancellationTokenSource cts = new())
+            {
+                CancellationToken cancellationToken = cts.Token;
+
+                HashSet<Task<(IPeerConnection, SubversePeerId)>> allTasks;
                 lock (connections)
                 {
-                    allTasks = connections.Select(x =>
-                        Task.Run(() => x.SendMessage(nextHopMessage))
-                        ).ToHashSet();
+                    SubverseMessage nextHopMessage = message with
+                    { TimeToLive = message.TimeToLive - 1 };
+
+                    allTasks = connections.Select(connection =>
+                        Task.Run(async () =>
+                        {
+                            await Task.Yield();
+
+                            try
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                connection.SendMessage(nextHopMessage);
+                            }
+                            catch (QuicException ex)
+                            { _logger.LogError(ex, null); }
+
+                            return (connection, nextHopMessage.Recipient);
+                        }, cancellationToken))
+                        .ToHashSet();
                 }
 
-                try
-                {
-                    await Task.WhenAll(allTasks);
-                }
-                catch (QuicException ex) { _logger.LogError(ex, null); }
-                catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
+                resultTask = await Task.WhenAny(allTasks);
+                // cts gets disposed here!! Implicit cancellation of any outstanding send tasks.
             }
+
+            var (connection, peerId) = await resultTask;
+            await OpenConnectionAsync(connection,
+                new SubverseMessage(peerId, 0,
+                ProtocolCode.Command, []),
+                default);
+            // Try to open an explicit subscription to the recipient's
+            // messages knowing that we successfully routed the message to this peer.
         }
     }
 }
