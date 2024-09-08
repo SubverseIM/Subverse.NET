@@ -6,10 +6,10 @@ namespace Subverse.Abstractions
 {
     public interface IPeerService
     {
-        SubversePeerId ConnectionId { get; }
+        SubversePeerId PeerId { get; }
 
-        Task<SubversePeerId> OpenConnectionAsync(IPeerConnection connection, SubverseMessage? message, CancellationToken cancellationToken);
-        Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken);
+        Task<SubversePeerId> OpenConnectionAsync(IPeerConnection connection, SubverseMessage? message, CancellationToken cancellationToken = default);
+        Task CloseConnectionAsync(IPeerConnection connection, SubversePeerId connectionId, CancellationToken cancellationToken = default);
 
         SubversePeer GetSelf();
 

@@ -7,6 +7,7 @@ namespace Subverse.Server
     internal class NatTunnelService : BackgroundService
     {
         private readonly IPeerService _peerService;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<NatTunnelService> _logger;
 
         private readonly TaskCompletionSource _tcs;
@@ -14,9 +15,10 @@ namespace Subverse.Server
         private INatDevice? _natDevice;
         private Mapping? _mapping;
 
-        public NatTunnelService(IPeerService peerService, ILogger<NatTunnelService> logger)
+        public NatTunnelService(IPeerService peerService, IConfiguration configuration, ILogger<NatTunnelService> logger)
         {
             _peerService = peerService;
+            _configuration = configuration;
             _logger = logger;
 
             _tcs = new();
@@ -24,6 +26,12 @@ namespace Subverse.Server
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            if (_configuration.GetSection("HubService")
+                .GetValue<string?>("Hostname") is null) 
+            {
+                return;
+            }
+
             NatUtility.DeviceFound += NatDeviceFound;
             NatUtility.StartDiscovery();
 

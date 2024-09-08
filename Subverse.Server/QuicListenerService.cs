@@ -10,7 +10,7 @@ namespace Subverse.Server
 {
     internal class QuicListenerService : BackgroundService
     {
-        private const string DEFAULT_CERT_PATH = "server/conf/default.subverse.pfx";
+        private const string DEFAULT_CERT_PATH = "server/conf/anonymous.subverse.network.pfx";
         private const string DEFAULT_CERT_PASSWORD = "#FreeTheInternet";
 
         private readonly IConfiguration _configuration;
@@ -63,7 +63,7 @@ namespace Subverse.Server
             foreach (var connectionId in connectionIds)
             {
                 await _peerService.CloseConnectionAsync(
-                    peerConnection, connectionId, default
+                    peerConnection, connectionId
                     );
             }
 
