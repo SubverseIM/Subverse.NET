@@ -211,6 +211,10 @@ namespace Subverse.Server
             {
                 entityKeysSource = _entityKeysSources.GetOrAdd(peerId,
                     new TaskCompletionSource<EncryptionKeys>());
+            }
+
+            if (!entityKeysSource.Task.IsCompleted)
+            {
                 await RouteEntityAsync(peerId);
             }
 
