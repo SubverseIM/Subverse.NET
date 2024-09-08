@@ -365,7 +365,7 @@ namespace Subverse.Server
 
             if (allTasks.Count > 0)
             {
-                await Task.WhenAny(allTasks);
+                await Task.WhenAll(allTasks);
             }
             // cts gets disposed here!! Implicit cancellation of any outstanding send tasks.
         }

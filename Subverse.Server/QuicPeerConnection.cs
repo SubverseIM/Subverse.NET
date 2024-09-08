@@ -116,15 +116,10 @@ namespace Subverse.Server
         {
             return Task.Run(() =>
             {
-                if (!quicStream.CanRead)
-                {
-                    throw new NotSupportedException();
-                }
-
                 using (var bsonReader = new BsonDataReader(quicStream) { CloseInput = false, SupportMultipleContent = true })
                 {
                     var serializer = new JsonSerializer() { TypeNameHandling = TypeNameHandling.Objects, Converters = { new PeerIdConverter() } };
-                    while (!cancellationToken.IsCancellationRequested && !quicStream.WritesClosed.IsCompleted)
+                    while (!cancellationToken.IsCancellationRequested && quicStream.CanRead)
                     {
                         var message = serializer.Deserialize<SubverseMessage>(bsonReader)
                             ?? throw new InvalidOperationException("Expected to recieve SubverseMessage, got malformed data instead!");
@@ -144,7 +139,7 @@ namespace Subverse.Server
             QuicStream quicStream = _quicStreamMap[message.Recipient];
             lock (quicStream)
             {
-                if (!quicStream.WritesClosed.IsCompleted)
+                if (quicStream.CanWrite)
                 {
                     using (var bsonWriter = new BsonDataWriter(quicStream) { CloseOutput = false, AutoCompleteOnClose = true })
                     {
