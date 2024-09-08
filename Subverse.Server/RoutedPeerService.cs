@@ -135,7 +135,7 @@ namespace Subverse.Server
                         });
                 }
             }
-            
+
             return Task.CompletedTask;
         }
 
@@ -203,10 +203,7 @@ namespace Subverse.Server
                     new TaskCompletionSource<EncryptionKeys>());
             }
 
-            if (!entityKeysSource.Task.IsCompleted)
-            {
-                await RouteEntityAsync(peerId);
-            }
+            await RouteEntityAsync(peerId);
 
             using var cts = new CancellationTokenSource(DEFAULT_ENTITY_WAIT_TIMEOUT);
             return await entityKeysSource.Task.WaitAsync(cts.Token);
@@ -226,9 +223,9 @@ namespace Subverse.Server
 
             if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
             {
-                if (connection is not null) 
+                if (connection is not null)
                 {
-                    await OpenConnectionAsync(connection, 
+                    await OpenConnectionAsync(connection,
                         new SubverseMessage(theirCookie.Key,
                         _configStartTTL, ProtocolCode.Command, []
                         ));
