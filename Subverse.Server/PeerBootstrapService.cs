@@ -1,5 +1,6 @@
 ﻿
 using Newtonsoft.Json;
+using Quiche.NET;
 using Subverse.Abstractions;
 using Subverse.Models;
 using Subverse.Server;
@@ -26,6 +27,7 @@ internal class PeerBootstrapService : BackgroundService
     private readonly ILogger<PeerBootstrapService> _logger;
     private readonly IPeerService _peerService;
 
+    private readonly Socket _socket;
     private readonly HttpClient _http;
     private readonly PeriodicTimer _timer;
 
@@ -44,6 +46,9 @@ internal class PeerBootstrapService : BackgroundService
 
         _logger = logger;
         _peerService = hubService;
+
+        _socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+        _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
         _http = new HttpClient()
         {
@@ -131,27 +136,24 @@ internal class PeerBootstrapService : BackgroundService
                     // Try connection w/ timeout
                     try
                     {
-                        using CancellationTokenSource cts = new(DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
-                        QuicConnection quicConnection = await QuicConnection.ConnectAsync(
-                            new QuicClientConnectionOptions
-                            {
-                                RemoteEndPoint = remoteEndPoint,
+                        using var cts = new CancellationTokenSource(DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
 
-                                DefaultStreamErrorCode = 0x0A, // Protocol-dependent error code.
-                                DefaultCloseErrorCode = 0x0B, // Protocol-dependent error code.
+                        var clientConfig = new QuicheConfig()
+                        {
+                            MaxInitialDataSize = 4096,
 
-                                ClientAuthenticationOptions = new()
-                                {
-                                    ApplicationProtocols = new List<SslApplicationProtocol>() { new("SubverseV2") },
-                                    TargetHost = hostname,
-                                },
+                            MaxInitialBidiStreams = 64,
+                            MaxInitialLocalBidiStreamDataSize = 4096,
+                            MaxInitialRemoteBidiStreamDataSize = 4096,
 
-                                MaxInboundBidirectionalStreams = 64,
+                            MaxInitialUniStreams = 0,
+                            MaxInitialUniStreamDataSize = 0,
+                        };
+                        clientConfig.SetApplicationProtocols("SubverseV2");
 
-                                KeepAliveInterval = TimeSpan.FromSeconds(1.0),
-                            }, cts.Token);
+                        var quicheConnection = QuicheConnection.Connect(_socket, remoteEndPoint, clientConfig, hostname);
+                        QuichePeerConnection peerConnection = new(quicheConnection);
 
-                        QuicPeerConnection peerConnection = new(quicConnection);
                         _connectionMap.AddOrUpdate(hostname, peerConnection,
                             (key, oldConnection) =>
                             {
@@ -164,7 +166,7 @@ internal class PeerBootstrapService : BackgroundService
                             new SubverseMessage(_peerService.PeerId,
                             0, ProtocolCode.Command, []), cts.Token);
                     }
-                    catch (QuicException ex) { _logger.LogError(ex, null); }
+                    catch (QuicheException ex) { _logger.LogError(ex, null); }
                     catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
                 }
             }
@@ -180,6 +182,7 @@ internal class PeerBootstrapService : BackgroundService
             {
                 _connectionMap.Clear();
 
+                _socket.Dispose();
                 _http.Dispose();
                 _timer.Dispose();
             }
