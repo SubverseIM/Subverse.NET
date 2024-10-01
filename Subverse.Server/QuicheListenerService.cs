@@ -7,6 +7,7 @@ using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.X86;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Subverse.Server
@@ -90,7 +91,7 @@ namespace Subverse.Server
                     MaxInitialRemoteBidiStreamDataSize = 4096,
 
                     MaxInitialUniStreams = 0,
-                    MaxInitialUniStreamDataSize = 0,
+                    MaxInitialUniStreamDataSize = 0
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");
