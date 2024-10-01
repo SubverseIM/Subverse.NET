@@ -140,15 +140,16 @@ internal class PeerBootstrapService : BackgroundService
 
                         var clientConfig = new QuicheConfig()
                         {
-                            MaxInitialDataSize = 4096,
+                            MaxInitialDataSize = 4096 * 1024,
 
                             MaxInitialBidiStreams = 64,
                             MaxInitialLocalBidiStreamDataSize = 4096,
                             MaxInitialRemoteBidiStreamDataSize = 4096,
 
-                            MaxInitialUniStreams = 0,
-                            MaxInitialUniStreamDataSize = 0,
+                            MaxInitialUniStreams = 64,
+                            MaxInitialUniStreamDataSize = 4096,
                         };
+
                         clientConfig.SetApplicationProtocols("SubverseV2");
 
                         var quicheConnection = QuicheConnection.Connect(_socket, remoteEndPoint, clientConfig, hostname);
