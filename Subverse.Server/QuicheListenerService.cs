@@ -12,33 +12,14 @@ namespace Subverse.Server
         private const string DEFAULT_CERT_CHAIN_PATH = "server/conf/cert-chain.pem";
         private const string DEFAULT_PRIVATE_KEY_PATH = "server/conf/private-key.pem";
 
-        private readonly IConfiguration _configuration;
-        private readonly IHostEnvironment _environment;
         private readonly ILogger<QuicheListenerService> _logger;
         private readonly IPeerService _peerService;
 
-        public QuicheListenerService(IConfiguration configuration, IHostEnvironment environment, ILogger<QuicheListenerService> logger, IPeerService hubService)
+        public QuicheListenerService(ILogger<QuicheListenerService> logger, IPeerService hubService)
         {
-            _configuration = configuration;
-            _environment = environment;
             _logger = logger;
             _peerService = hubService;
         }
-
-        //private X509Certificate? GetServerCertificate()
-        //{
-        //    var certPath = _configuration.GetSection("Privacy")
-        //        .GetValue<string?>("SSLCertPath") ?? DEFAULT_CERT_PATH;
-
-        //    var certPathFull = Path.IsPathFullyQualified(certPath) ? certPath :
-        //        Path.Combine(_environment.ContentRootPath, certPath);
-
-        //    var certPassword = _configuration.GetSection("Privacy")
-        //        .GetValue<string?>("SSLCertPassword") ?? DEFAULT_CERT_PASSWORD;
-
-        //    return File.Exists(certPathFull) ? X509CertificateLoader
-        //        .LoadPkcs12FromFile(certPathFull, certPassword) : null;
-        //}
 
         private async Task ListenConnectionsAsync(QuicheConnection quicheConnection, CancellationToken cancellationToken)
         {
