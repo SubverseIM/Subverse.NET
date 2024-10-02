@@ -132,7 +132,7 @@ namespace Subverse.Server
         {
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
 
-            QuicheStream newQuicheStream = _connection.GetStream(_quicStreamMap.Count);
+            QuicheStream newQuicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
             SubversePeerId recipient;
 
             CancellationTokenSource newCts;
