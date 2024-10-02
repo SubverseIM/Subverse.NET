@@ -76,19 +76,19 @@ namespace Subverse.Server
                 List<Task> listenTasks = new ();
                 try
                 {
-                    while (!stoppingToken.IsCancellationRequested)
-                    {
-                        var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+                    using var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
                         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
-                        _peerService.LocalEndPoint = socket.LocalEndPoint as IPEndPoint;
+                    _peerService.LocalEndPoint = socket.LocalEndPoint as IPEndPoint;
 
-                        var result = await socket.ReceiveFromAsync(initialData, socket.LocalEndPoint ?? 
-                            throw new ArgumentNullException(), stoppingToken);
+                    using var listener = new QuicheListener(socket, serverConfig);
+                    _ = listener.ListenAsync(stoppingToken);
 
-                        var initialDataMem = new ReadOnlyMemory<byte>(initialData, 0, result.ReceivedBytes);
-
-                        var quicheConnection = QuicheConnection.Accept(socket, result.RemoteEndPoint, initialDataMem, serverConfig);
+                    while (!stoppingToken.IsCancellationRequested)
+                    {
+                        stoppingToken.ThrowIfCancellationRequested();
+                        
+                        var quicheConnection = await listener.AcceptAsync(stoppingToken);
                         var listenTask = Task.Run(() => ListenConnectionsAsync(quicheConnection, stoppingToken));
                         listenTasks.Add(listenTask);
                     }
