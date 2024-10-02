@@ -140,7 +140,7 @@ internal class PeerBootstrapService : BackgroundService
 
                         var clientConfig = new QuicheConfig()
                         {
-                            MaxInitialDataSize = 4096 * 1024,
+                            MaxInitialDataSize = 4096,
 
                             MaxInitialBidiStreams = 64,
                             MaxInitialLocalBidiStreamDataSize = 4096,

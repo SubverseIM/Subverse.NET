@@ -80,18 +80,18 @@ namespace Subverse.Server
                 RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
                 RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
-                var initialData = new byte[4 * 1024 * 1024];
+                var initialData = new byte[4096];
 
                 var serverConfig = new QuicheConfig()
                 {
-                    MaxInitialDataSize = 4 * 1024 * 1024,
+                    MaxInitialDataSize = 4096,
 
                     MaxInitialBidiStreams = 64,
                     MaxInitialLocalBidiStreamDataSize = 4096,
                     MaxInitialRemoteBidiStreamDataSize = 4096,
 
                     MaxInitialUniStreams = 64,
-                    MaxInitialUniStreamDataSize = 4096
+                    MaxInitialUniStreamDataSize = 4096,
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");
