@@ -1,14 +1,9 @@
 using Quiche.NET;
 using Subverse.Abstractions;
 using Subverse.Types;
-using System.Buffers;
 using System.Net;
-using System.Net.Quic;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics.X86;
-using System.Security.Cryptography.X509Certificates;
 
 namespace Subverse.Server
 {
@@ -21,8 +16,6 @@ namespace Subverse.Server
         private readonly IHostEnvironment _environment;
         private readonly ILogger<QuicheListenerService> _logger;
         private readonly IPeerService _peerService;
-
-        private Socket? _socket;
 
         public QuicheListenerService(IConfiguration configuration, IHostEnvironment environment, ILogger<QuicheListenerService> logger, IPeerService hubService)
         {
@@ -126,7 +119,6 @@ namespace Subverse.Server
                 }
 
                 await Task.WhenAll(listenTasks);
-                _socket?.Dispose();
             }
         }
     }
