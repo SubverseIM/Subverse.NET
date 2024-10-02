@@ -130,9 +130,7 @@ namespace Subverse.Server
 
         public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
-            Console.WriteLine("Handshake start");
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
-            Console.WriteLine("Handshake end");
 
             QuicheStream newQuicheStream = _connection.GetStream(_quicStreamMap.Count);
             SubversePeerId recipient;
