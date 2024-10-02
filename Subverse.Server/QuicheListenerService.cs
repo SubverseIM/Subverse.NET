@@ -80,18 +80,18 @@ namespace Subverse.Server
                 RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
                 RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
-                var initialData = new byte[4096];
+                var initialData = new byte[QuicheLibrary.MAX_DATAGRAM_LEN];
 
                 var serverConfig = new QuicheConfig()
                 {
-                    MaxInitialDataSize = 4096,
+                    MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
 
                     MaxInitialBidiStreams = 64,
-                    MaxInitialLocalBidiStreamDataSize = 4096,
-                    MaxInitialRemoteBidiStreamDataSize = 4096,
+                    MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                    MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
 
                     MaxInitialUniStreams = 64,
-                    MaxInitialUniStreamDataSize = 4096,
+                    MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");
@@ -102,17 +102,19 @@ namespace Subverse.Server
                 List<Task> listenTasks = new ();
                 try
                 {
-                    _socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-                    _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
-
-                    _peerService.LocalEndPoint = _socket.LocalEndPoint as IPEndPoint;
-
                     while (!stoppingToken.IsCancellationRequested)
                     {
-                        var result = await _socket.ReceiveFromAsync(initialData, _socket.LocalEndPoint, stoppingToken);
+                        var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+                        socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+
+                        _peerService.LocalEndPoint = socket.LocalEndPoint as IPEndPoint;
+
+                        var result = await socket.ReceiveFromAsync(initialData, socket.LocalEndPoint ?? 
+                            throw new ArgumentNullException(), stoppingToken);
+
                         var initialDataMem = new ReadOnlyMemory<byte>(initialData, 0, result.ReceivedBytes);
 
-                        var quicheConnection = QuicheConnection.Accept(_socket, result.RemoteEndPoint, initialDataMem, serverConfig);
+                        var quicheConnection = QuicheConnection.Accept(socket, result.RemoteEndPoint, initialDataMem, serverConfig);
                         var listenTask = Task.Run(() => ListenConnectionsAsync(quicheConnection, stoppingToken));
                         listenTasks.Add(listenTask);
                     }

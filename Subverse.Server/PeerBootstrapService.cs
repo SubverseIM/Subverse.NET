@@ -1,6 +1,7 @@
 ﻿
 using Newtonsoft.Json;
 using Quiche.NET;
+using SIPSorcery.Sys;
 using Subverse.Abstractions;
 using Subverse.Models;
 using Subverse.Server;
@@ -27,7 +28,6 @@ internal class PeerBootstrapService : BackgroundService
     private readonly ILogger<PeerBootstrapService> _logger;
     private readonly IPeerService _peerService;
 
-    private readonly Socket _socket;
     private readonly HttpClient _http;
     private readonly PeriodicTimer _timer;
 
@@ -46,9 +46,6 @@ internal class PeerBootstrapService : BackgroundService
 
         _logger = logger;
         _peerService = hubService;
-
-        _socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-        _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
         _http = new HttpClient()
         {
@@ -140,19 +137,22 @@ internal class PeerBootstrapService : BackgroundService
 
                         var clientConfig = new QuicheConfig()
                         {
-                            MaxInitialDataSize = 4096,
+                            MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
 
                             MaxInitialBidiStreams = 64,
-                            MaxInitialLocalBidiStreamDataSize = 4096,
-                            MaxInitialRemoteBidiStreamDataSize = 4096,
+                            MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                            MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
 
                             MaxInitialUniStreams = 64,
-                            MaxInitialUniStreamDataSize = 4096,
+                            MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
                         };
 
                         clientConfig.SetApplicationProtocols("SubverseV2");
 
-                        var quicheConnection = QuicheConnection.Connect(_socket, remoteEndPoint, clientConfig, hostname);
+                        var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+                        socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+
+                        var quicheConnection = QuicheConnection.Connect(socket, remoteEndPoint, clientConfig, hostname);
                         QuichePeerConnection peerConnection = new(quicheConnection);
 
                         _connectionMap.AddOrUpdate(hostname, peerConnection,
@@ -183,7 +183,6 @@ internal class PeerBootstrapService : BackgroundService
             {
                 _connectionMap.Clear();
 
-                _socket.Dispose();
                 _http.Dispose();
                 _timer.Dispose();
             }
