@@ -16,7 +16,7 @@ namespace Subverse.Server
 
         private readonly QuicheConnection _connection;
 
-        private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _quicStreamMap;
+        private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _quicheStreamMap;
         private readonly ConcurrentDictionary<SubversePeerId, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<SubversePeerId, Task> _taskMap;
 
@@ -30,7 +30,7 @@ namespace Subverse.Server
         {
             _connection = connection;
 
-            _quicStreamMap = new();
+            _quicheStreamMap = new();
             _ctsMap = new();
             _taskMap = new();
 
@@ -40,9 +40,9 @@ namespace Subverse.Server
         private QuicheStream? GetBestPeerStream(SubversePeerId peerId)
         {
             QuicheStream? quicheStream;
-            if (!_quicStreamMap.TryGetValue(peerId, out quicheStream))
+            if (!_quicheStreamMap.TryGetValue(peerId, out quicheStream))
             {
-                quicheStream = _quicStreamMap.Values.SingleOrDefault();
+                quicheStream = _quicheStreamMap.Values.SingleOrDefault();
             }
             return quicheStream;
         }
@@ -111,7 +111,7 @@ namespace Subverse.Server
                     { }
                     finally
                     {
-                        foreach (var (_, quicStream) in _quicStreamMap)
+                        foreach (var (_, quicStream) in _quicheStreamMap)
                         {
                             quicStream.Dispose();
                         }
@@ -132,7 +132,7 @@ namespace Subverse.Server
         {
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
 
-            QuicheStream newQuicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+            QuicheStream newQuicheStream;
             SubversePeerId recipient;
 
             CancellationTokenSource newCts;
@@ -140,6 +140,8 @@ namespace Subverse.Server
 
             if (message is null)
             {
+                newQuicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+
                 newCts = new();
                 newTask = RecieveAsync(newQuicheStream, newCts.Token);
 
@@ -148,6 +150,8 @@ namespace Subverse.Server
             }
             else
             {
+                newQuicheStream = _connection.GetStream(_quicheStreamMap.Count);
+
                 newCts = new();
                 newTask = RecieveAsync(newQuicheStream, newCts.Token);
 
@@ -181,7 +185,7 @@ namespace Subverse.Server
                     return newTask;
                 });
 
-            _ = _quicStreamMap.AddOrUpdate(recipient, newQuicheStream,
+            _ = _quicheStreamMap.AddOrUpdate(recipient, newQuicheStream,
                 (key, oldQuicStream) =>
                 {
                     oldQuicStream.Dispose();
