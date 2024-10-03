@@ -1,7 +1,6 @@
 ﻿
 using Newtonsoft.Json;
 using Quiche.NET;
-using SIPSorcery.Sys;
 using Subverse.Abstractions;
 using Subverse.Models;
 using Subverse.Server;
@@ -9,8 +8,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Mime;
-using System.Net.Quic;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 

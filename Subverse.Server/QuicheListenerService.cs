@@ -12,11 +12,17 @@ namespace Subverse.Server
         private const string DEFAULT_CERT_CHAIN_PATH = "server/conf/cert-chain.pem";
         private const string DEFAULT_PRIVATE_KEY_PATH = "server/conf/private-key.pem";
 
+        private readonly IHostEnvironment _environment;
+        private readonly IConfiguration _configuration;
+
         private readonly ILogger<QuicheListenerService> _logger;
         private readonly IPeerService _peerService;
 
-        public QuicheListenerService(ILogger<QuicheListenerService> logger, IPeerService hubService)
+        public QuicheListenerService(IHostEnvironment environment, IConfiguration configuration, ILogger<QuicheListenerService> logger, IPeerService hubService)
         {
+            _environment = environment;
+            _configuration = configuration;
+
             _logger = logger;
             _peerService = hubService;
         }
@@ -70,8 +76,19 @@ namespace Subverse.Server
 
                 serverConfig.SetApplicationProtocols("SubverseV2");
 
-                serverConfig.LoadCertificateChainFromPemFile(DEFAULT_CERT_CHAIN_PATH);
-                serverConfig.LoadPrivateKeyFromPemFile(DEFAULT_PRIVATE_KEY_PATH);
+                string certChainPath = _configuration.GetSection("Privacy")
+                    .GetValue<string>("SSLCertChainPath") ?? DEFAULT_CERT_CHAIN_PATH;
+                serverConfig.LoadCertificateChainFromPemFile(
+                    Path.IsPathFullyQualified(certChainPath) ? certChainPath :
+                    Path.Combine(_environment.ContentRootPath, certChainPath)
+                    );
+
+                string privateKeyPath = _configuration.GetSection("Privacy")
+                    .GetValue<string>("SSLPrivateKeyPath") ?? DEFAULT_PRIVATE_KEY_PATH;
+                serverConfig.LoadPrivateKeyFromPemFile(
+                    Path.IsPathFullyQualified(privateKeyPath) ? privateKeyPath :
+                    Path.Combine(_environment.ContentRootPath, privateKeyPath)
+                    );
 
                 List<Task> listenTasks = new ();
                 try
