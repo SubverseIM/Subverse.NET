@@ -16,7 +16,9 @@ namespace Subverse.Server
 
         private readonly QuicheConnection _connection;
 
-        private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _quicheStreamMap;
+        private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _inboundStreamMap;
+        private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _outboundStreamMap;
+
         private readonly ConcurrentDictionary<SubversePeerId, CancellationTokenSource> _ctsMap;
         private readonly ConcurrentDictionary<SubversePeerId, Task> _taskMap;
 
@@ -30,21 +32,33 @@ namespace Subverse.Server
         {
             _connection = connection;
 
-            _quicheStreamMap = new();
+            _inboundStreamMap = new();
+            _outboundStreamMap = new();
+
             _ctsMap = new();
             _taskMap = new();
 
             _initialMessageSource = new();
         }
 
-        private QuicheStream? GetBestPeerStream(SubversePeerId peerId)
+        private QuicheStream? GetBestInboundPeerStream(SubversePeerId peerId)
         {
             QuicheStream? quicheStream;
-            if (!_quicheStreamMap.TryGetValue(peerId, out quicheStream))
+            if (!_inboundStreamMap.TryGetValue(peerId, out quicheStream))
             {
-                quicheStream = _quicheStreamMap.Values.SingleOrDefault();
+                quicheStream = _inboundStreamMap.Values.SingleOrDefault();
             }
             return quicheStream;
+        }
+
+        private QuicheStream? GetBestOutboundPeerStream(SubversePeerId peerId)
+        {
+            QuicheStream? quicheStream;
+            if (!_inboundStreamMap.TryGetValue(peerId, out quicheStream))
+            {
+                quicheStream = _outboundStreamMap.Values.SingleOrDefault();
+            }
+            return quicStream;
         }
 
         private Task RecieveAsync(QuicheStream quicheStream, CancellationToken cancellationToken)
@@ -111,7 +125,12 @@ namespace Subverse.Server
                     { }
                     finally
                     {
-                        foreach (var (_, quicStream) in _quicheStreamMap)
+                        foreach (var (_, quicStream) in _inboundStreamMap)
+                        {
+                            quicStream.Dispose();
+                        }
+
+                        foreach (var (_, quicStream) in _outboundStreamMap)
                         {
                             quicStream.Dispose();
                         }
@@ -132,7 +151,7 @@ namespace Subverse.Server
         {
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
 
-            QuicheStream newQuicheStream;
+            QuicheStream inboundStream, outboundStream;
             SubversePeerId recipient;
 
             CancellationTokenSource newCts;
@@ -140,20 +159,22 @@ namespace Subverse.Server
 
             if (message is null)
             {
-                newQuicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                outboundStream = _connection.GetStream();
 
                 newCts = new();
-                newTask = RecieveAsync(newQuicheStream, newCts.Token);
+                newTask = RecieveAsync(inboundStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task;
                 recipient = initialMessage.Recipient;
             }
             else
             {
-                newQuicheStream = _connection.GetStream(_quicheStreamMap.Count);
+                outboundStream = _connection.GetStream(_inboundStreamMap.Count);
+                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
                 newCts = new();
-                newTask = RecieveAsync(newQuicheStream, newCts.Token);
+                newTask = RecieveAsync(inboundStream, newCts.Token);
 
                 recipient = message.Recipient;
             }
@@ -185,16 +206,24 @@ namespace Subverse.Server
                     return newTask;
                 });
 
-            _ = _quicheStreamMap.AddOrUpdate(recipient, newQuicheStream,
+            _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
                 (key, oldQuicStream) =>
                 {
                     oldQuicStream.Dispose();
-                    return newQuicheStream;
+                    return inboundStream;
                 });
 
             if (message is not null)
             {
                 SendMessage(message);
+            }
+            else
+            {
+                // empty message just to get the stream started
+                SendMessage(new SubverseMessage(
+                    default, DEFAULT_CONFIG_START_TTL, 
+                    SubverseMessage.ProtocolCode.Command, 
+                    []));
             }
 
             return recipient;
@@ -202,7 +231,7 @@ namespace Subverse.Server
 
         public void SendMessage(SubverseMessage message)
         {
-            QuicheStream? quicheStream = GetBestPeerStream(message.Recipient);
+            QuicheStream? quicheStream = GetBestOutboundPeerStream(message.Recipient);
             if (quicheStream is null)
             {
                 throw new InvalidOperationException("Suitable transport for this message could not be found.");
@@ -232,7 +261,7 @@ namespace Subverse.Server
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
         {
-            QuicheStream? quicheStream = GetBestPeerStream(peerId);
+            QuicheStream? quicheStream = GetBestInboundPeerStream(peerId);
             return quicheStream?.CanRead & quicheStream?.CanWrite ?? false;
         }
     }
