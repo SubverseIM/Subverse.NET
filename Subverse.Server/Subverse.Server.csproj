@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
 	<PropertyGroup>
-		<TargetFrameworks>net9.0;net9.0-windows</TargetFrameworks>
+		<TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<EnablePreviewFeatures>true</EnablePreviewFeatures>
