@@ -177,7 +177,7 @@ namespace Subverse.Server
                         oldTask.Wait();
                     }
                     catch (AggregateException ex) when (ex.InnerExceptions.All(
-                        x => x is QuicException ||
+                        x => x is QuicheException ||
                         x is NotSupportedException ||
                         x is OperationCanceledException))
                     { }
