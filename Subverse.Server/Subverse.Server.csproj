@@ -1,10 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
 	<PropertyGroup>
-		<TargetFrameworks>net9.0;net9.0-windows</TargetFrameworks>
+		<TargetFrameworks>net8.0;net8.0-windows;net8.0-macos</TargetFrameworks>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
-		<EnablePreviewFeatures>true</EnablePreviewFeatures>
 		<UserSecretsId>e4b12c90-b56a-4770-9925-732c45eddb46</UserSecretsId>
 	</PropertyGroup>
 
@@ -23,6 +22,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\Quiche.NET\Quiche.NET.csproj" />
 		<ProjectReference Include="..\Subverse\Subverse.csproj" />
 	</ItemGroup>
 </Project>

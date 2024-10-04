@@ -11,7 +11,7 @@ builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
 builder.Services.AddSingleton<IPeerService, RoutedPeerService>();
 
 // Main
-builder.Services.AddHostedService<QuicListenerService>();
+builder.Services.AddHostedService<QuicheListenerService>();
 builder.Services.AddHostedService<PeerBootstrapService>();
 builder.Services.AddHostedService<NatTunnelService>();
 

@@ -1,4 +1,5 @@
 ﻿using PgpCore;
+using Quiche.NET;
 using SIPSorcery.SIP;
 using Subverse.Abstractions;
 using Subverse.Implementations;
@@ -54,7 +55,7 @@ namespace Subverse.Server
             _configStartTTL = _configuration.GetSection("HubService")?
                 .GetValue<int?>("StartTTL") ?? DEFAULT_CONFIG_START_TTL;
 
-            QuicPeerConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
+            QuichePeerConnection.DEFAULT_CONFIG_START_TTL = _configStartTTL;
 
             _logger = logger;
             _keyProvider = keyProvider;
@@ -356,7 +357,7 @@ namespace Subverse.Server
                             cancellationToken.ThrowIfCancellationRequested();
                             connection.SendMessage(nextHopMessage);
                         }
-                        catch (QuicException ex)
+                        catch (QuicheException ex)
                         { _logger.LogError(ex, null); }
                     }, cancellationToken))
                     .ToHashSet();
