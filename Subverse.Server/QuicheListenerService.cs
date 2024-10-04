@@ -72,6 +72,7 @@ namespace Subverse.Server
 
                     MaxInitialUniStreams = 64,
                     MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                    ShouldVerifyPeer = false
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");
