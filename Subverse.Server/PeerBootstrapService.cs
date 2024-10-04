@@ -142,6 +142,8 @@ internal class PeerBootstrapService : BackgroundService
 
                             MaxInitialUniStreams = 64,
                             MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+
+                            ShouldVerifyPeer = false
                         };
 
                         clientConfig.SetApplicationProtocols("SubverseV2");
