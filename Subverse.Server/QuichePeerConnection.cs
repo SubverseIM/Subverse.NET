@@ -140,7 +140,7 @@ namespace Subverse.Server
 
             if (message is null)
             {
-                newQuicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                newQuicheStream = _connection.GetStream(_quicheStreamMap.Count);
 
                 newCts = new();
                 newTask = RecieveAsync(newQuicheStream, newCts.Token);
