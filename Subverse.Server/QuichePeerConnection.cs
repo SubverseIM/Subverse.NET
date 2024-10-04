@@ -58,7 +58,7 @@ namespace Subverse.Server
             {
                 quicheStream = _outboundStreamMap.Values.SingleOrDefault();
             }
-            return quicStream;
+            return quicheStream;
         }
 
         private Task RecieveAsync(QuicheStream quicheStream, CancellationToken cancellationToken)
