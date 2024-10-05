@@ -161,24 +161,23 @@ namespace Subverse.Server
             if (message is not null)
             {
                 outboundStream = _connection.GetStream();
-                SendMessage(message, outboundStream);
+                recipient = message.Recipient;
 
-                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                (key, oldOutboundStream) =>
-                {
-                    oldOutboundStream.Dispose();
-                    return outboundStream;
-                });
+                SendMessage(message, outboundStream);
             }
             else
             {
                 inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                outboundStream = _connection.GetStream();
 
                 newCts = new();
                 newTask = RecieveAsync(inboundStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task;
                 recipient = initialMessage.Recipient;
+
+                SendMessage(new SubverseMessage(recipient, 0, 
+                    SubverseMessage.ProtocolCode.Command, []));
 
                 _ = _ctsMap.AddOrUpdate(recipient, newCts,
                 (key, oldCts) =>
@@ -214,6 +213,13 @@ namespace Subverse.Server
                         return inboundStream;
                     });
             }
+
+            _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                (key, oldOutboundStream) =>
+                {
+                    oldOutboundStream.Dispose();
+                    return outboundStream;
+                });
 
             return recipient;
         }
