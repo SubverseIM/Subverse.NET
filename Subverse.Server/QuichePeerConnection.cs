@@ -167,8 +167,8 @@ namespace Subverse.Server
             }
             else
             {
-                outboundStream = _connection.GetStream();
                 inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                outboundStream = _connection.GetStream();
             }
 
             newCts = new();
