@@ -177,7 +177,8 @@ namespace Subverse.Server
                 recipient = initialMessage.Recipient;
 
                 SendMessage(new SubverseMessage(recipient, 0, 
-                    SubverseMessage.ProtocolCode.Command, []));
+                    SubverseMessage.ProtocolCode.Command, []),
+                    outboundStream);
 
                 _ = _ctsMap.AddOrUpdate(recipient, newCts,
                 (key, oldCts) =>
