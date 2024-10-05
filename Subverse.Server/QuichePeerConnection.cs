@@ -162,6 +162,7 @@ namespace Subverse.Server
             {
                 outboundStream = _connection.GetStream();
                 SendMessage(message, outboundStream);
+                await Task.Delay(750);
                 inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
             }
             else 
