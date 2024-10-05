@@ -54,7 +54,7 @@ namespace Subverse.Server
         private QuicheStream? GetBestOutboundPeerStream(SubversePeerId peerId)
         {
             QuicheStream? quicheStream;
-            if (!_inboundStreamMap.TryGetValue(peerId, out quicheStream))
+            if (!_outboundStreamMap.TryGetValue(peerId, out quicheStream))
             {
                 quicheStream = _outboundStreamMap.Values.SingleOrDefault();
             }
