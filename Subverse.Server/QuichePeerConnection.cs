@@ -163,13 +163,10 @@ namespace Subverse.Server
             {
                 SendMessage(message, outboundStream);
             }
-            else 
-            {
-                SendMessage(new SubverseMessage(default, 0,
+            inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+            SendMessage(new SubverseMessage(default, 0,
                     SubverseMessage.ProtocolCode.Command, []),
                     outboundStream);
-            }
-            inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
             newCts = new();
             newTask = RecieveAsync(inboundStream, newCts.Token);
