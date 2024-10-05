@@ -359,6 +359,10 @@ namespace Subverse.Server
                         }
                         catch (QuicheException ex)
                         { _logger.LogError(ex, null); }
+                        catch (InvalidOperationException ex)
+                        { _logger.LogError(ex, null); }
+                        catch (NotSupportedException ex)
+                        { _logger.LogError(ex, null); }
                     }, cancellationToken))
                     .ToHashSet();
             }

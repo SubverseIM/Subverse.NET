@@ -149,7 +149,8 @@ namespace Subverse.Server
 
         public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
-            await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
+            await _connection.ConnectionEstablished
+                .WaitAsync(cancellationToken);
 
             QuicheStream inboundStream, outboundStream;
             SubversePeerId recipient;
@@ -160,8 +161,20 @@ namespace Subverse.Server
             if (message is null)
             {
                 inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-                outboundStream = _connection.GetStream();
+                _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
+                (key, oldInboundStream) =>
+                {
+                    oldInboundStream.Dispose();
+                    return inboundStream;
+                });
 
+                outboundStream = _connection.GetStream();
+                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                    (key, oldOutboundStream) =>
+                    {
+                        oldOutboundStream.Dispose();
+                        return outboundStream;
+                    });
                 // empty message just to get the stream started
                 SendMessage(new SubverseMessage(
                     default, DEFAULT_CONFIG_START_TTL, 
@@ -176,7 +189,13 @@ namespace Subverse.Server
             }
             else
             {
-                outboundStream = _connection.GetStream(_inboundStreamMap.Count);
+                outboundStream = _connection.GetStream();
+                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                    (key, oldOutboundStream) =>
+                    {
+                        oldOutboundStream.Dispose();
+                        return outboundStream;
+                    });
                 SendMessage(message);
 
                 inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
@@ -212,20 +231,6 @@ namespace Subverse.Server
                     { }
 
                     return newTask;
-                });
-
-            _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
-                (key, oldInboundStream) =>
-                {
-                    oldInboundStream.Dispose();
-                    return inboundStream;
-                });
-
-            _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                (key, oldOutboundStream) =>
-                {
-                    oldOutboundStream.Dispose();
-                    return outboundStream;
                 });
 
             return recipient;
