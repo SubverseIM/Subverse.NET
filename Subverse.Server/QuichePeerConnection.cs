@@ -179,7 +179,8 @@ namespace Subverse.Server
 
             if (message is null)
             {
-                SendMessage(new SubverseMessage(recipient, 0,
+                SendMessage(new SubverseMessage(
+                    recipient, DEFAULT_CONFIG_START_TTL,
                     ProtocolCode.Command, []), outboundStream
                     );
             }
