@@ -168,7 +168,6 @@ namespace Subverse.Server
             else
             {
                 inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-                outboundStream = _connection.GetStream();
             }
 
             newCts = new();
@@ -179,6 +178,7 @@ namespace Subverse.Server
 
             if (message is null)
             {
+                outboundStream = _connection.GetStream();
                 SendMessage(new SubverseMessage(
                     recipient, DEFAULT_CONFIG_START_TTL,
                     ProtocolCode.Command, []), outboundStream
@@ -265,7 +265,7 @@ namespace Subverse.Server
         {
             QuicheStream? inboundStream = GetBestInboundPeerStream(peerId);
             QuicheStream? outboundStream = GetBestOutboundPeerStream(peerId);
-            return inboundStream?.CanRead | outboundStream?.CanWrite ?? false;
+            return inboundStream?.CanRead & outboundStream?.CanWrite ?? false;
         }
     }
 }
