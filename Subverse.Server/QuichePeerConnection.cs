@@ -175,7 +175,8 @@ namespace Subverse.Server
             if (message is null) 
             {
                 SendMessage(new SubverseMessage(recipient, 0, 
-                    SubverseMessage.ProtocolCode.Command, []));
+                    SubverseMessage.ProtocolCode.Command, []),
+                    outboundStream);
             }
 
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
@@ -222,7 +223,9 @@ namespace Subverse.Server
             return recipient;
         }
 
-        public void SendMessage(SubverseMessage message, QuicheStream? quicheStream = null)
+        public void SendMessage(SubverseMessage message) => SendMessage(message, null);
+
+        private void SendMessage(SubverseMessage message, QuicheStream? quicheStream)
         {
             quicheStream = quicheStream ?? GetBestOutboundPeerStream(message.Recipient);
             if (quicheStream is null)
