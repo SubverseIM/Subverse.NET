@@ -161,6 +161,40 @@ namespace Subverse.Server
             if (message is null)
             {
                 inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+
+                newCts = new();
+                newTask = RecieveAsync(inboundStream, newCts.Token);
+
+                SubverseMessage initialMessage = await _initialMessageSource.Task;
+                recipient = initialMessage.Recipient;
+
+                _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                    (key, oldCts) =>
+                    {
+                        if (!oldCts.IsCancellationRequested)
+                        {
+                            oldCts.Dispose();
+                        }
+
+                        return newCts;
+                    });
+
+                _ = _taskMap.AddOrUpdate(recipient, newTask,
+                    (key, oldTask) =>
+                    {
+                        try
+                        {
+                            oldTask.Wait();
+                        }
+                        catch (AggregateException ex) when (ex.InnerExceptions.All(
+                            x => x is QuicheException ||
+                            x is NotSupportedException ||
+                            x is OperationCanceledException))
+                        { }
+
+                        return newTask;
+                    });
+
                 _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
                 (key, oldInboundStream) =>
                 {
@@ -175,20 +209,17 @@ namespace Subverse.Server
                         oldOutboundStream.Dispose();
                         return outboundStream;
                     });
+
                 // empty message just to get the stream started
                 SendMessage(new SubverseMessage(
                     default, DEFAULT_CONFIG_START_TTL, 
                     SubverseMessage.ProtocolCode.Command, 
                     []));
-
-                newCts = new();
-                newTask = RecieveAsync(inboundStream, newCts.Token);
-
-                SubverseMessage initialMessage = await _initialMessageSource.Task;
-                recipient = initialMessage.Recipient;
             }
             else
             {
+                recipient = message.Recipient;
+
                 outboundStream = _connection.GetStream();
                 _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
                     (key, oldOutboundStream) =>
@@ -203,10 +234,7 @@ namespace Subverse.Server
                 newCts = new();
                 newTask = RecieveAsync(inboundStream, newCts.Token);
 
-                recipient = message.Recipient;
-            }
-
-            _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                _ = _ctsMap.AddOrUpdate(recipient, newCts,
                     (key, oldCts) =>
                     {
                         if (!oldCts.IsCancellationRequested)
@@ -217,21 +245,22 @@ namespace Subverse.Server
                         return newCts;
                     });
 
-            _ = _taskMap.AddOrUpdate(recipient, newTask,
-                (key, oldTask) =>
-                {
-                    try
+                _ = _taskMap.AddOrUpdate(recipient, newTask,
+                    (key, oldTask) =>
                     {
-                        oldTask.Wait();
-                    }
-                    catch (AggregateException ex) when (ex.InnerExceptions.All(
-                        x => x is QuicheException ||
-                        x is NotSupportedException ||
-                        x is OperationCanceledException))
-                    { }
+                        try
+                        {
+                            oldTask.Wait();
+                        }
+                        catch (AggregateException ex) when (ex.InnerExceptions.All(
+                            x => x is QuicheException ||
+                            x is NotSupportedException ||
+                            x is OperationCanceledException))
+                        { }
 
-                    return newTask;
-                });
+                        return newTask;
+                    });
+            }
 
             return recipient;
         }
