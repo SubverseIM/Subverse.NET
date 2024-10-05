@@ -158,13 +158,17 @@ namespace Subverse.Server
             CancellationTokenSource newCts;
             Task newTask;
 
-            outboundStream = _connection.GetStream();
             if (message is not null)
             {
+                outboundStream = _connection.GetStream();
                 SendMessage(message, outboundStream);
+                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
             }
-
-            inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+            else 
+            {
+                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                outboundStream = _connection.GetStream();
+            }
 
             newCts = new();
             newTask = RecieveAsync(inboundStream, newCts.Token);
