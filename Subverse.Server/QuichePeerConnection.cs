@@ -158,31 +158,24 @@ namespace Subverse.Server
             CancellationTokenSource newCts;
             Task newTask;
 
+            outboundStream = _connection.GetStream();
             if (message is not null)
             {
-                outboundStream = _connection.GetStream();
                 SendMessage(message, outboundStream);
-                await Task.Delay(750);
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
             }
             else 
             {
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-                outboundStream = _connection.GetStream();
+                SendMessage(new SubverseMessage(recipient, 0,
+                    SubverseMessage.ProtocolCode.Command, []),
+                    outboundStream);
             }
+            inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
             newCts = new();
             newTask = RecieveAsync(inboundStream, newCts.Token);
 
             SubverseMessage initialMessage = await _initialMessageSource.Task;
             recipient = initialMessage.Recipient;
-
-            if (message is null) 
-            {
-                SendMessage(new SubverseMessage(recipient, 0, 
-                    SubverseMessage.ProtocolCode.Command, []),
-                    outboundStream);
-            }
 
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
                 (key, oldCts) =>
