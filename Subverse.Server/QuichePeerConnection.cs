@@ -158,24 +158,29 @@ namespace Subverse.Server
             CancellationTokenSource newCts;
             Task newTask;
 
-            outboundStream = _connection.GetStream();
             if (message is not null)
             {
+                outboundStream = _connection.GetStream();
                 SendMessage(message, outboundStream);
+
+                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                (key, oldOutboundStream) =>
+                {
+                    oldOutboundStream.Dispose();
+                    return outboundStream;
+                });
             }
-            inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+            else
+            {
+                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-            newCts = new();
-            newTask = RecieveAsync(inboundStream, newCts.Token);
+                newCts = new();
+                newTask = RecieveAsync(inboundStream, newCts.Token);
 
-            SubverseMessage initialMessage = await _initialMessageSource.Task;
-            recipient = initialMessage.Recipient;
+                SubverseMessage initialMessage = await _initialMessageSource.Task;
+                recipient = initialMessage.Recipient;
 
-            SendMessage(new SubverseMessage(default, 0,
-                    SubverseMessage.ProtocolCode.Command, []),
-                    outboundStream);
-
-            _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                _ = _ctsMap.AddOrUpdate(recipient, newCts,
                 (key, oldCts) =>
                 {
                     if (!oldCts.IsCancellationRequested)
@@ -186,35 +191,29 @@ namespace Subverse.Server
                     return newCts;
                 });
 
-            _ = _taskMap.AddOrUpdate(recipient, newTask,
-                (key, oldTask) =>
-                {
-                    try
+                _ = _taskMap.AddOrUpdate(recipient, newTask,
+                    (key, oldTask) =>
                     {
-                        oldTask.Wait();
-                    }
-                    catch (AggregateException ex) when (ex.InnerExceptions.All(
-                        x => x is QuicheException ||
-                        x is NotSupportedException ||
-                        x is OperationCanceledException))
-                    { }
+                        try
+                        {
+                            oldTask.Wait();
+                        }
+                        catch (AggregateException ex) when (ex.InnerExceptions.All(
+                            x => x is QuicheException ||
+                            x is NotSupportedException ||
+                            x is OperationCanceledException))
+                        { }
 
-                    return newTask;
-                });
+                        return newTask;
+                    });
 
-            _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
-                (key, oldInboundStream) =>
-                {
-                    oldInboundStream.Dispose();
-                    return inboundStream;
-                });
-
-            _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                (key, oldOutboundStream) =>
-                {
-                    oldOutboundStream.Dispose();
-                    return outboundStream;
-                });
+                _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
+                    (key, oldInboundStream) =>
+                    {
+                        oldInboundStream.Dispose();
+                        return inboundStream;
+                    });
+            }
 
             return recipient;
         }
@@ -255,7 +254,7 @@ namespace Subverse.Server
         {
             QuicheStream? inboundStream = GetBestInboundPeerStream(peerId);
             QuicheStream? outboundStream = GetBestOutboundPeerStream(peerId);
-            return inboundStream?.CanRead & outboundStream?.CanWrite ?? false;
+            return inboundStream?.CanRead | outboundStream?.CanWrite ?? false;
         }
     }
 }
