@@ -212,7 +212,7 @@ namespace Subverse.Server
 
                 // empty message just to get the stream started
                 SendMessage(new SubverseMessage(
-                    default, DEFAULT_CONFIG_START_TTL, 
+                    recipient, DEFAULT_CONFIG_START_TTL, 
                     SubverseMessage.ProtocolCode.Command, 
                     []));
             }
