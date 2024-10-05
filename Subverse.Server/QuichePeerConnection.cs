@@ -165,7 +165,7 @@ namespace Subverse.Server
             }
             else 
             {
-                SendMessage(new SubverseMessage(recipient, 0,
+                SendMessage(new SubverseMessage(default, 0,
                     SubverseMessage.ProtocolCode.Command, []),
                     outboundStream);
             }
