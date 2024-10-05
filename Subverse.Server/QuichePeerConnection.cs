@@ -158,116 +158,73 @@ namespace Subverse.Server
             CancellationTokenSource newCts;
             Task newTask;
 
-            if (message is null)
+            outboundStream = _connection.GetStream();
+            if (message is not null)
             {
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                SendMessage(message, outboundStream);
+            }
 
-                newCts = new();
-                newTask = RecieveAsync(inboundStream, newCts.Token);
+            inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-                SubverseMessage initialMessage = await _initialMessageSource.Task;
-                recipient = initialMessage.Recipient;
+            newCts = new();
+            newTask = RecieveAsync(inboundStream, newCts.Token);
 
-                _ = _ctsMap.AddOrUpdate(recipient, newCts,
-                    (key, oldCts) =>
+            SubverseMessage initialMessage = await _initialMessageSource.Task;
+            recipient = initialMessage.Recipient;
+
+            if (message is null) 
+            {
+                SendMessage(new SubverseMessage(recipient, 0, 
+                    SubverseMessage.ProtocolCode.Command, []));
+            }
+
+            _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                (key, oldCts) =>
+                {
+                    if (!oldCts.IsCancellationRequested)
                     {
-                        if (!oldCts.IsCancellationRequested)
-                        {
-                            oldCts.Dispose();
-                        }
+                        oldCts.Dispose();
+                    }
 
-                        return newCts;
-                    });
+                    return newCts;
+                });
 
-                _ = _taskMap.AddOrUpdate(recipient, newTask,
-                    (key, oldTask) =>
+            _ = _taskMap.AddOrUpdate(recipient, newTask,
+                (key, oldTask) =>
+                {
+                    try
                     {
-                        try
-                        {
-                            oldTask.Wait();
-                        }
-                        catch (AggregateException ex) when (ex.InnerExceptions.All(
-                            x => x is QuicheException ||
-                            x is NotSupportedException ||
-                            x is OperationCanceledException))
-                        { }
+                        oldTask.Wait();
+                    }
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
+                        x => x is QuicheException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
+                    { }
 
-                        return newTask;
-                    });
+                    return newTask;
+                });
 
-                _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
+            _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
                 (key, oldInboundStream) =>
                 {
                     oldInboundStream.Dispose();
                     return inboundStream;
                 });
 
-                outboundStream = _connection.GetStream();
-                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                    (key, oldOutboundStream) =>
-                    {
-                        oldOutboundStream.Dispose();
-                        return outboundStream;
-                    });
-
-                // empty message just to get the stream started
-                SendMessage(new SubverseMessage(
-                    recipient, DEFAULT_CONFIG_START_TTL, 
-                    SubverseMessage.ProtocolCode.Command, 
-                    []));
-            }
-            else
-            {
-                recipient = message.Recipient;
-
-                outboundStream = _connection.GetStream();
-                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                    (key, oldOutboundStream) =>
-                    {
-                        oldOutboundStream.Dispose();
-                        return outboundStream;
-                    });
-                SendMessage(message);
-
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-
-                newCts = new();
-                newTask = RecieveAsync(inboundStream, newCts.Token);
-
-                _ = _ctsMap.AddOrUpdate(recipient, newCts,
-                    (key, oldCts) =>
-                    {
-                        if (!oldCts.IsCancellationRequested)
-                        {
-                            oldCts.Dispose();
-                        }
-
-                        return newCts;
-                    });
-
-                _ = _taskMap.AddOrUpdate(recipient, newTask,
-                    (key, oldTask) =>
-                    {
-                        try
-                        {
-                            oldTask.Wait();
-                        }
-                        catch (AggregateException ex) when (ex.InnerExceptions.All(
-                            x => x is QuicheException ||
-                            x is NotSupportedException ||
-                            x is OperationCanceledException))
-                        { }
-
-                        return newTask;
-                    });
-            }
+            _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                (key, oldOutboundStream) =>
+                {
+                    oldOutboundStream.Dispose();
+                    return outboundStream;
+                });
 
             return recipient;
         }
 
-        public void SendMessage(SubverseMessage message)
+        public void SendMessage(SubverseMessage message, QuicheStream? quicheStream = null)
         {
-            QuicheStream? quicheStream = GetBestOutboundPeerStream(message.Recipient);
+            quicheStream = quicheStream ?? GetBestOutboundPeerStream(message.Recipient);
             if (quicheStream is null)
             {
                 throw new InvalidOperationException("Suitable transport for this message could not be found.");
