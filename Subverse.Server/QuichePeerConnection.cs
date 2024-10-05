@@ -153,7 +153,7 @@ namespace Subverse.Server
             await _connection.ConnectionEstablished
                 .WaitAsync(cancellationToken);
 
-            QuicheStream inboundStream, outboundStream;
+            QuicheStream? inboundStream = null, outboundStream = null;
             SubversePeerId recipient;
 
             CancellationTokenSource newCts;
@@ -219,12 +219,15 @@ namespace Subverse.Server
                     return inboundStream;
                 });
 
-            _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                (key, oldOutboundStream) =>
-                {
-                    oldOutboundStream.Dispose();
-                    return outboundStream;
-                });
+            if (outboundStream is not null)
+            {
+                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                    (key, oldOutboundStream) =>
+                    {
+                        oldOutboundStream.Dispose();
+                        return outboundStream;
+                    });
+            }
 
             return recipient;
         }
