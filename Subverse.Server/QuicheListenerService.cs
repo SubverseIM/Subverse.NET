@@ -38,9 +38,7 @@ namespace Subverse.Server
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     connectionIds.Add(await _peerService.OpenConnectionAsync(
-                        peerConnection, new SubverseMessage(
-                            _peerService.PeerId, 0, ProtocolCode.Command, 
-                            []), cancellationToken));
+                        peerConnection, null, cancellationToken));
                 }
             }
             catch (Exception ex)

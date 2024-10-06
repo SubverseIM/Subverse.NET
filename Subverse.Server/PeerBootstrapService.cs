@@ -155,7 +155,9 @@ internal class PeerBootstrapService : BackgroundService
                                 return peerConnection;
                             });
 
-                        await _peerService.OpenConnectionAsync(peerConnection, null, cts.Token);
+                        await _peerService.OpenConnectionAsync(peerConnection, 
+                            new SubverseMessage(_peerService.PeerId, 0, 
+                            ProtocolCode.Command, []), cts.Token);
                     }
                     catch (QuicheException ex) { _logger.LogError(ex, null); }
                     catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
