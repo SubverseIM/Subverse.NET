@@ -132,7 +132,7 @@ internal class PeerBootstrapService : BackgroundService
                     {
                         using var cts = new CancellationTokenSource(DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
 
-                        var clientConfig = new QuicheConfig()
+                        var clientConfig = new QuicheConfig(isEarlyDataEnabled: true)
                         {
                             MaxInitialUniStreams = 16,
                             MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
