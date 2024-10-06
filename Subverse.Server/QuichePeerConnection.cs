@@ -148,60 +148,72 @@ namespace Subverse.Server
             GC.SuppressFinalize(this);
         }
 
-        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage message, CancellationToken cancellationToken)
+        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
-            QuicheStream outboundStream = _connection.GetStream();
-            SendMessage(message, outboundStream);
+            SubversePeerId recipient;
+            QuicheStream? outboundStream;
+            if (message is not null)
+            {
+                outboundStream = _connection.GetStream();
+                SendMessage(message, outboundStream);
 
-            QuicheStream inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                recipient = message.Recipient;
+            }
+            else
+            {
+                outboundStream = null;
+                QuicheStream inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-            CancellationTokenSource newCts = new();
-            Task newTask = RecieveAsync(inboundStream, newCts.Token);
+                CancellationTokenSource newCts = new();
+                Task newTask = RecieveAsync(inboundStream, newCts.Token);
 
-            SubverseMessage initialMessage = await _initialMessageSource.Task;
-            SubversePeerId recipient = initialMessage.Recipient;
+                SubverseMessage initialMessage = await _initialMessageSource.Task;
+                recipient = initialMessage.Recipient;
 
-            _ = _ctsMap.AddOrUpdate(recipient, newCts,
-                (key, oldCts) =>
-                {
-                    if (!oldCts.IsCancellationRequested)
+                _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                    (key, oldCts) =>
                     {
-                        oldCts.Dispose();
-                    }
+                        if (!oldCts.IsCancellationRequested)
+                        {
+                            oldCts.Dispose();
+                        }
 
-                    return newCts;
-                });
+                        return newCts;
+                    });
 
-            _ = _taskMap.AddOrUpdate(recipient, newTask,
-                (key, oldTask) =>
-                {
-                    try
+                _ = _taskMap.AddOrUpdate(recipient, newTask,
+                    (key, oldTask) =>
                     {
-                        oldTask.Wait();
-                    }
-                    catch (AggregateException ex) when (ex.InnerExceptions.All(
-                        x => x is QuicheException ||
-                        x is NotSupportedException ||
-                        x is OperationCanceledException))
-                    { }
+                        try
+                        {
+                            oldTask.Wait();
+                        }
+                        catch (AggregateException ex) when (ex.InnerExceptions.All(
+                            x => x is QuicheException ||
+                            x is NotSupportedException ||
+                            x is OperationCanceledException))
+                        { }
 
-                    return newTask;
-                });
+                        return newTask;
+                    });
 
-            _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
-                (key, oldInboundStream) =>
-                {
-                    oldInboundStream.Dispose();
-                    return inboundStream;
-                });
+                _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
+                    (key, oldInboundStream) =>
+                    {
+                        oldInboundStream.Dispose();
+                        return inboundStream;
+                    });
+            }
 
-
-            _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                (key, oldOutboundStream) =>
-                {
-                    oldOutboundStream.Dispose();
-                    return outboundStream;
-                });
+            if (outboundStream is not null)
+            {
+                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                    (key, oldOutboundStream) =>
+                    {
+                        oldOutboundStream.Dispose();
+                        return outboundStream;
+                    });
+            }
 
             return recipient;
         }
