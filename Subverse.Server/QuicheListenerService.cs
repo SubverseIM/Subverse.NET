@@ -37,8 +37,10 @@ namespace Subverse.Server
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
+                    using var cts = new CancellationTokenSource(5000);
+
                     SubversePeerId connectionId = await _peerService
-                        .OpenConnectionAsync(peerConnection, null, cancellationToken);
+                        .OpenConnectionAsync(peerConnection, null, cts.Token);
 
                     connectionIds.Add(connectionId);
                 }
