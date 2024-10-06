@@ -154,7 +154,7 @@ namespace Subverse.Server
             QuicheStream? outboundStream;
             if (message is not null)
             {
-                outboundStream = _connection.GetStream();
+                outboundStream = _connection.GetUnusedLocalStream();
                 SendMessage(message, outboundStream);
 
                 recipient = message.Recipient;
