@@ -64,7 +64,7 @@ namespace Subverse.Server
             {
                 var initialData = new byte[QuicheLibrary.MAX_DATAGRAM_LEN];
 
-                var serverConfig = new QuicheConfig(isEarlyDataEnabled: true)
+                var serverConfig = new QuicheConfig()
                 {
                     MaxInitialUniStreams = 16,
                     MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
