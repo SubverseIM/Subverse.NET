@@ -162,6 +162,8 @@ namespace Subverse.Server
             else
             {
                 outboundStream = null;
+                await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
+
                 QuicheStream inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
                 CancellationTokenSource newCts = new();
