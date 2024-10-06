@@ -1,9 +1,11 @@
 using Quiche.NET;
 using Subverse.Abstractions;
+using Subverse.Models;
 using Subverse.Types;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using static Subverse.Models.SubverseMessage;
 
 namespace Subverse.Server
 {
@@ -36,7 +38,9 @@ namespace Subverse.Server
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     connectionIds.Add(await _peerService.OpenConnectionAsync(
-                        peerConnection, null, cancellationToken));
+                        peerConnection, new SubverseMessage(
+                            _peerService.PeerId, 0, ProtocolCode.Command, 
+                            []), cancellationToken));
                 }
             }
             catch (Exception ex)
@@ -62,17 +66,11 @@ namespace Subverse.Server
             {
                 var initialData = new byte[QuicheLibrary.MAX_DATAGRAM_LEN];
 
-                var serverConfig = new QuicheConfig()
+                var serverConfig = new QuicheConfig(isEarlyDataEnabled: true)
                 {
-                    MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
-                    MaxInitialBidiStreams = 64,
-                    MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                    MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
-                    MaxInitialUniStreams = 64,
+                    MaxInitialUniStreams = 16,
                     MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                    ShouldVerifyPeer = false
+                    MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");

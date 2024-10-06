@@ -134,14 +134,9 @@ internal class PeerBootstrapService : BackgroundService
 
                         var clientConfig = new QuicheConfig()
                         {
-                            MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
-                            MaxInitialBidiStreams = 64,
-                            MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                            MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
-                            MaxInitialUniStreams = 64,
+                            MaxInitialUniStreams = 16,
                             MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                            MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
                         };
 
                         clientConfig.SetApplicationProtocols("SubverseV2");
@@ -160,9 +155,7 @@ internal class PeerBootstrapService : BackgroundService
                                 return peerConnection;
                             });
 
-                        await _peerService.OpenConnectionAsync(peerConnection,
-                            new SubverseMessage(_peerService.PeerId,
-                            0, ProtocolCode.Command, []), cts.Token);
+                        await _peerService.OpenConnectionAsync(peerConnection, null, cts.Token);
                     }
                     catch (QuicheException ex) { _logger.LogError(ex, null); }
                     catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
