@@ -148,42 +148,18 @@ namespace Subverse.Server
             GC.SuppressFinalize(this);
         }
 
-        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
+        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage message, CancellationToken cancellationToken)
         {
-            QuicheStream? inboundStream = null, outboundStream = null;
-            SubversePeerId recipient;
+            QuicheStream outboundStream = _connection.GetStream();
+            SendMessage(message, outboundStream);
 
-            CancellationTokenSource newCts;
-            Task newTask;
+            QuicheStream inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-            if (message is not null)
-            {
-                outboundStream = _connection.GetStream();
-                SendMessage(message, outboundStream);
-
-                await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-            }
-            else
-            {
-                await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-            }
-
-            newCts = new();
-            newTask = RecieveAsync(inboundStream, newCts.Token);
+            CancellationTokenSource newCts = new();
+            Task newTask = RecieveAsync(inboundStream, newCts.Token);
 
             SubverseMessage initialMessage = await _initialMessageSource.Task;
-            recipient = initialMessage.Recipient;
-
-            if (message is null)
-            {
-                outboundStream = _connection.GetStream();
-                SendMessage(new SubverseMessage(
-                    recipient, DEFAULT_CONFIG_START_TTL,
-                    ProtocolCode.Command, []), outboundStream
-                    );
-            }
+            SubversePeerId recipient = initialMessage.Recipient;
 
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
                 (key, oldCts) =>
@@ -212,25 +188,20 @@ namespace Subverse.Server
                     return newTask;
                 });
 
-            if (inboundStream is not null)
-            {
-                _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
-                    (key, oldInboundStream) =>
-                    {
-                        oldInboundStream.Dispose();
-                        return inboundStream;
-                    });
-            }
+            _ = _inboundStreamMap.AddOrUpdate(recipient, inboundStream,
+                (key, oldInboundStream) =>
+                {
+                    oldInboundStream.Dispose();
+                    return inboundStream;
+                });
 
-            if (outboundStream is not null)
-            {
-                _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
-                    (key, oldOutboundStream) =>
-                    {
-                        oldOutboundStream.Dispose();
-                        return outboundStream;
-                    });
-            }
+
+            _ = _outboundStreamMap.AddOrUpdate(recipient, outboundStream,
+                (key, oldOutboundStream) =>
+                {
+                    oldOutboundStream.Dispose();
+                    return outboundStream;
+                });
 
             return recipient;
         }

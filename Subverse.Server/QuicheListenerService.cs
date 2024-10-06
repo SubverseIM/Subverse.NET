@@ -37,8 +37,11 @@ namespace Subverse.Server
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    connectionIds.Add(await _peerService.OpenConnectionAsync(
-                        peerConnection, null, cancellationToken));
+                    SubversePeerId connectionId = await _peerService.OpenConnectionAsync(peerConnection, 
+                        new SubverseMessage(_peerService.PeerId, 0,ProtocolCode.Command, []), 
+                        cancellationToken);
+
+                    connectionIds.Add(connectionId);
                 }
             }
             catch (Exception ex)
@@ -48,9 +51,7 @@ namespace Subverse.Server
 
             foreach (var connectionId in connectionIds)
             {
-                await _peerService.CloseConnectionAsync(
-                    peerConnection, connectionId
-                    );
+                await _peerService.CloseConnectionAsync(peerConnection, connectionId);
             }
 
             quicheConnection.Dispose();
