@@ -121,8 +121,9 @@ internal class PeerBootstrapService : BackgroundService
 
                     if (remoteEndPoint is null ||
                             _connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
-                            !currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
-                            _connectionMap.TryRemove(hostname, out IPeerConnection? _))
+                            (!currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
+                            _connectionMap.TryRemove(hostname, out IPeerConnection? _) || 
+                            currentPeerConnection.HasValidConnectionTo(_peerService.PeerId)))
                     {
                         continue;
                     }
@@ -134,10 +135,6 @@ internal class PeerBootstrapService : BackgroundService
 
                         var clientConfig = new QuicheConfig(isEarlyDataEnabled: true)
                         {
-                            MaxInitialBidiStreams = 16,
-                            MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                            MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
                             MaxInitialUniStreams = 16,
                             MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
 

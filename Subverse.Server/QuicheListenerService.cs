@@ -66,10 +66,6 @@ namespace Subverse.Server
 
                 var serverConfig = new QuicheConfig(isEarlyDataEnabled: true)
                 {
-                    MaxInitialBidiStreams = 16,
-                    MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                    MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
                     MaxInitialUniStreams = 16,
                     MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
 
