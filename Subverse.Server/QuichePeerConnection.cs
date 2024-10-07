@@ -148,7 +148,7 @@ namespace Subverse.Server
 
         public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage message, CancellationToken cancellationToken)
         {   
-            QuicheStream outboundStream = _connection.GetUnusedLocalStream();
+            QuicheStream outboundStream = await _connection.OpenStreamAsync(cancellationToken);
             SendMessage(message, outboundStream);
 
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
