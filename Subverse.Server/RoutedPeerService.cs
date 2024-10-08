@@ -225,8 +225,10 @@ namespace Subverse.Server
                 _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
             }
 
-            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
-            await RouteEntityAsync(theirCookie.Key);
+            if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
+            {
+                await RouteEntityAsync(theirCookie.Key);
+            }
         }
 
         private async Task ProcessSipMessageAsync(IPeerConnection? connection, SubverseMessage message)
@@ -330,16 +332,12 @@ namespace Subverse.Server
         {
             if (message.TimeToLive <= 0) return;
 
-            HashSet<IPeerConnection>? connections;
-            if (!_connectionMap.TryGetValue(message.Recipient,
-                out connections) || connections.Count == 0)
-            {
-                connections = _connectionMap.Values
+            HashSet<IPeerConnection>? connections = 
+                _connectionMap.Values
                     .FlattenWithLock<
                         HashSet<IPeerConnection>,
                         IPeerConnection>()
                     .ToHashSet();
-            }
 
             using CancellationTokenSource cts = new();
             CancellationToken cancellationToken = cts.Token;
