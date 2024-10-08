@@ -31,7 +31,7 @@ namespace Subverse.Server
 
         private async Task ListenConnectionsAsync(QuicheConnection quicheConnection, CancellationToken cancellationToken)
         {
-            var peerConnection = new QuichePeerConnection(quicheConnection, _peerService.PeerId);
+            var peerConnection = new QuichePeerConnection(quicheConnection);
             List<SubversePeerId> connectionIds = new();
             try
             {

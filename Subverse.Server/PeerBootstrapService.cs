@@ -148,7 +148,7 @@ internal class PeerBootstrapService : BackgroundService
                         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
                         var quicheConnection = QuicheConnection.Connect(socket, remoteEndPoint, clientConfig, hostname);
-                        QuichePeerConnection peerConnection = new(quicheConnection, _peerService.PeerId);
+                        QuichePeerConnection peerConnection = new(quicheConnection);
 
                         _connectionMap.AddOrUpdate(hostname, peerConnection,
                             (key, oldConnection) =>
