@@ -157,7 +157,6 @@ namespace Subverse.Server
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
-            _logger.LogInformation("Connection_MessageReceived");
             var connection = sender as IPeerConnection;
             if (!e.Message.Recipient.Equals(PeerId))
             {
@@ -213,8 +212,6 @@ namespace Subverse.Server
 
         private async Task ProcessEntityAsync(IPeerConnection? connection, SubverseMessage message)
         {
-            _logger.LogInformation("ProcessEntityAsync");
-
             CertificateCookie theirCookie;
             TaskCompletionSource<EncryptionKeys>? entityKeysSource;
 
@@ -332,12 +329,16 @@ namespace Subverse.Server
         {
             if (message.TimeToLive <= 0) return;
 
-            HashSet<IPeerConnection>? connections = 
-                _connectionMap.Values
+            HashSet<IPeerConnection>? connections;
+            if (!_connectionMap.TryGetValue(message.Recipient,
+                out connections) || connections.Count == 0)
+            {
+                connections = _connectionMap.Values
                     .FlattenWithLock<
                         HashSet<IPeerConnection>,
                         IPeerConnection>()
                     .ToHashSet();
+            }
 
             using CancellationTokenSource cts = new();
             CancellationToken cancellationToken = cts.Token;
