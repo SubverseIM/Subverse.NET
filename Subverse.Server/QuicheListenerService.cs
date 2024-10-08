@@ -37,10 +37,8 @@ namespace Subverse.Server
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    using var cts = new CancellationTokenSource(5000);
-
                     SubversePeerId connectionId = await _peerService
-                        .OpenConnectionAsync(peerConnection, null, cts.Token);
+                        .OpenConnectionAsync(peerConnection, null, cancellationToken);
 
                     connectionIds.Add(connectionId);
                 }
@@ -68,11 +66,11 @@ namespace Subverse.Server
 
                 var serverConfig = new QuicheConfig()
                 {
+                    MaxInitialDataSize = 1024 * 1024,
+
                     MaxInitialBidiStreams = 16,
                     MaxInitialLocalBidiStreamDataSize = 1024 * 1024,
                     MaxInitialRemoteBidiStreamDataSize = 1024 * 1024,
-
-                    MaxInitialDataSize = 1024 * 1024,
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");
