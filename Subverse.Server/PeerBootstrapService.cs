@@ -136,9 +136,13 @@ internal class PeerBootstrapService : BackgroundService
                         var clientConfig = new QuicheConfig(isEarlyDataEnabled: true)
                         {
                             MaxInitialUniStreams = 16,
-                            MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                            MaxInitialUniStreamDataSize = 4 * 1024 * 1024,
 
-                            MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                            MaxInitialBidiStreams = 16,
+                            MaxInitialLocalBidiStreamDataSize = 4 * 1024 * 1024,
+                            MaxInitialRemoteBidiStreamDataSize = 4 * 1024 * 1024,
+
+                            MaxInitialDataSize = 4 * 1024 * 1024,
                         };
 
                         clientConfig.SetApplicationProtocols("SubverseV2");
