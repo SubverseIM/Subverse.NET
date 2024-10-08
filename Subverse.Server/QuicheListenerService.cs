@@ -35,8 +35,10 @@ namespace Subverse.Server
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    connectionIds.Add(await _peerService.OpenConnectionAsync(
-                        peerConnection, null, cancellationToken));
+                    SubversePeerId connectionId = await _peerService
+                        .OpenConnectionAsync(peerConnection, null, cancellationToken);
+
+                    connectionIds.Add(connectionId);
                 }
             }
             catch (Exception ex)
@@ -46,9 +48,7 @@ namespace Subverse.Server
 
             foreach (var connectionId in connectionIds)
             {
-                await _peerService.CloseConnectionAsync(
-                    peerConnection, connectionId
-                    );
+                await _peerService.CloseConnectionAsync(peerConnection, connectionId);
             }
 
             quicheConnection.Dispose();
@@ -64,15 +64,11 @@ namespace Subverse.Server
 
                 var serverConfig = new QuicheConfig()
                 {
-                    MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                    MaxInitialDataSize = 1024 * 1024,
 
-                    MaxInitialBidiStreams = 64,
-                    MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                    MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
-                    MaxInitialUniStreams = 64,
-                    MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                    ShouldVerifyPeer = false
+                    MaxInitialBidiStreams = 16,
+                    MaxInitialLocalBidiStreamDataSize = 1024 * 1024,
+                    MaxInitialRemoteBidiStreamDataSize = 1024 * 1024,
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");
@@ -91,11 +87,11 @@ namespace Subverse.Server
                     Path.Combine(_environment.ContentRootPath, privateKeyPath)
                     );
 
-                List<Task> listenTasks = new ();
+                List<Task> listenTasks = new();
                 try
                 {
                     using var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-                        socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+                    socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
                     _peerService.LocalEndPoint = socket.LocalEndPoint as IPEndPoint;
 
@@ -105,7 +101,7 @@ namespace Subverse.Server
                     while (!stoppingToken.IsCancellationRequested)
                     {
                         stoppingToken.ThrowIfCancellationRequested();
-                        
+
                         var quicheConnection = await listener.AcceptAsync(stoppingToken);
                         var listenTask = Task.Run(() => ListenConnectionsAsync(quicheConnection, stoppingToken));
                         listenTasks.Add(listenTask);

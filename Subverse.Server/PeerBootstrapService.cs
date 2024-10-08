@@ -121,8 +121,9 @@ internal class PeerBootstrapService : BackgroundService
 
                     if (remoteEndPoint is null ||
                             _connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
-                            !currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
-                            _connectionMap.TryRemove(hostname, out IPeerConnection? _))
+                            (!currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
+                            _connectionMap.TryRemove(hostname, out IPeerConnection? _) || 
+                            currentPeerConnection.HasValidConnectionTo(_peerService.PeerId)))
                     {
                         continue;
                     }
@@ -134,14 +135,11 @@ internal class PeerBootstrapService : BackgroundService
 
                         var clientConfig = new QuicheConfig()
                         {
-                            MaxInitialDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                            MaxInitialDataSize = 1024 * 1024,
 
-                            MaxInitialBidiStreams = 64,
-                            MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-                            MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
-
-                            MaxInitialUniStreams = 64,
-                            MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
+                            MaxInitialBidiStreams = 16,
+                            MaxInitialLocalBidiStreamDataSize = 1024 * 1024,
+                            MaxInitialRemoteBidiStreamDataSize = 1024 * 1024,
                         };
 
                         clientConfig.SetApplicationProtocols("SubverseV2");
@@ -160,9 +158,9 @@ internal class PeerBootstrapService : BackgroundService
                                 return peerConnection;
                             });
 
-                        await _peerService.OpenConnectionAsync(peerConnection,
-                            new SubverseMessage(_peerService.PeerId,
-                            0, ProtocolCode.Command, []), cts.Token);
+                        await _peerService.OpenConnectionAsync(peerConnection, 
+                            new SubverseMessage(_peerService.PeerId, 0,
+                            ProtocolCode.Command, []), cts.Token);
                     }
                     catch (QuicheException ex) { _logger.LogError(ex, null); }
                     catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
