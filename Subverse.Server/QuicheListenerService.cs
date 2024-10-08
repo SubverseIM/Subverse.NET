@@ -71,10 +71,6 @@ namespace Subverse.Server
                     MaxInitialUniStreams = 16,
                     MaxInitialUniStreamDataSize = 4 * 1024 * 1024,
 
-                    MaxInitialBidiStreams = 16,
-                    MaxInitialLocalBidiStreamDataSize = 4 * 1024 * 1024,
-                    MaxInitialRemoteBidiStreamDataSize = 4 * 1024 * 1024,
-
                     MaxInitialDataSize = 4 * 1024 * 1024,
                 };
 

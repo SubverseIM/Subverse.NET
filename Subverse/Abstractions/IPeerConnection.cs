@@ -7,7 +7,7 @@ namespace Subverse.Abstractions
     {
         event EventHandler<MessageReceivedEventArgs> MessageReceived;
 
-        Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken);
+        Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage message, CancellationToken cancellationToken);
 
         void SendMessage(SubverseMessage message);
 

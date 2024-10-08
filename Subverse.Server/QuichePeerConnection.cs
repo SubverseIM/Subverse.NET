@@ -149,42 +149,24 @@ namespace Subverse.Server
             GC.SuppressFinalize(this);
         }
 
-        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
+        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage message, CancellationToken cancellationToken)
         {
             Task newTask;
             CancellationTokenSource newCts;
             QuicheStream outboundStream, inboundStream;
 
-            SubversePeerId recipient;
+            outboundStream = await _connection.CreateOutboundStreamAsync(cancellationToken);
+            SendMessage(message, outboundStream);
 
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
 
-            if (message is not null)
-            {
-                outboundStream = await _connection.CreateOutboundStreamAsync(cancellationToken);
-                SendMessage(message, outboundStream);
+            inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+            newCts = new();
+            newTask = RecieveAsync(inboundStream, newCts.Token);
 
-                newCts = new();
-                newTask = RecieveAsync(inboundStream, newCts.Token);
-
-                SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
-                recipient = initialMessage.Recipient;
-            }
-            else 
-            {
-                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-
-                newCts = new();
-                newTask = RecieveAsync(inboundStream, newCts.Token);
-
-                SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
-                recipient = initialMessage.Recipient;
-
-                outboundStream = await _connection.CreateOutboundStreamAsync(cancellationToken);
-                SendMessage(new SubverseMessage(_peerId, 0, ProtocolCode.Command, []), outboundStream);
-            }
+            SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
+            SubversePeerId recipient = initialMessage.Recipient;
 
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
                 (key, oldCts) =>
