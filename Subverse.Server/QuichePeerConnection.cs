@@ -183,7 +183,7 @@ namespace Subverse.Server
                 recipient = initialMessage.Recipient;
 
                 outboundStream = await _connection.CreateOutboundStreamAsync(cancellationToken);
-                SendMessage(new SubverseMessage(_peerId, 0, ProtocolCode.Command, []));
+                SendMessage(new SubverseMessage(_peerId, 0, ProtocolCode.Command, []), outboundStream);
             }
 
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
