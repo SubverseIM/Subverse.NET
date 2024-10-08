@@ -64,11 +64,11 @@ namespace Subverse.Server
 
                 var serverConfig = new QuicheConfig()
                 {
-                    MaxInitialDataSize = 1024 * 1024,
+                    MaxInitialDataSize = QuicheLibrary.MAX_BUFFER_LEN,
 
                     MaxInitialBidiStreams = 16,
-                    MaxInitialLocalBidiStreamDataSize = 1024 * 1024,
-                    MaxInitialRemoteBidiStreamDataSize = 1024 * 1024,
+                    MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
+                    MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
                 };
 
                 serverConfig.SetApplicationProtocols("SubverseV2");

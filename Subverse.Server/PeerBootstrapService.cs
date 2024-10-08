@@ -38,7 +38,7 @@ internal class PeerBootstrapService : BackgroundService
     {
         _configuration = configuration;
 
-        _configApiUrl = _configuration.GetConnectionString("BootstrapApi") 
+        _configApiUrl = _configuration.GetConnectionString("BootstrapApi")
             ?? DEFAULT_CONFIG_BOOTSTRAP_API;
 
         _logger = logger;
@@ -122,7 +122,7 @@ internal class PeerBootstrapService : BackgroundService
                     if (remoteEndPoint is null ||
                             _connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
                             (!currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
-                            _connectionMap.TryRemove(hostname, out IPeerConnection? _) || 
+                            _connectionMap.TryRemove(hostname, out IPeerConnection? _) ||
                             currentPeerConnection.HasValidConnectionTo(_peerService.PeerId)))
                     {
                         continue;
@@ -135,11 +135,11 @@ internal class PeerBootstrapService : BackgroundService
 
                         var clientConfig = new QuicheConfig()
                         {
-                            MaxInitialDataSize = 1024 * 1024,
+                            MaxInitialDataSize = QuicheLibrary.MAX_BUFFER_LEN,
 
                             MaxInitialBidiStreams = 16,
-                            MaxInitialLocalBidiStreamDataSize = 1024 * 1024,
-                            MaxInitialRemoteBidiStreamDataSize = 1024 * 1024,
+                            MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
+                            MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
                         };
 
                         clientConfig.SetApplicationProtocols("SubverseV2");
@@ -158,7 +158,7 @@ internal class PeerBootstrapService : BackgroundService
                                 return peerConnection;
                             });
 
-                        await _peerService.OpenConnectionAsync(peerConnection, 
+                        await _peerService.OpenConnectionAsync(peerConnection,
                             new SubverseMessage(_peerService.PeerId, 0,
                             ProtocolCode.Command, []), cts.Token);
                     }
@@ -166,8 +166,8 @@ internal class PeerBootstrapService : BackgroundService
                     catch (OperationCanceledException ex) { _logger.LogError(ex, null); }
                 }
             }
-        } 
-        catch(OperationCanceledException) { }
+        }
+        catch (OperationCanceledException) { }
     }
 
     protected virtual void Dispose(bool disposing)

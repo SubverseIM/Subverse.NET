@@ -137,7 +137,7 @@ namespace Subverse.Server
 
             if (message is not null)
             {
-                quicheStream = await _connection.CreateOutboundStreamAsync(cancellationToken);
+                quicheStream = await _connection.CreateOutboundStreamAsync(QuicheStream.Direction.Bidirectional, cancellationToken);
                 SendMessage(message, quicheStream);
 
                 recipient = message.Recipient;
