@@ -6,6 +6,7 @@ using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Types;
 using System.Collections.Concurrent;
+using static Subverse.Models.SubverseMessage;
 
 namespace Subverse.Server
 {
@@ -14,6 +15,7 @@ namespace Subverse.Server
         public static int DEFAULT_CONFIG_START_TTL = 99;
 
         private readonly QuicheConnection _connection;
+        private readonly SubversePeerId _peerId;
 
         private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _inboundStreamMap;
         private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _outboundStreamMap;
@@ -27,9 +29,10 @@ namespace Subverse.Server
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public QuichePeerConnection(QuicheConnection connection)
+        public QuichePeerConnection(QuicheConnection connection, SubversePeerId peerId)
         {
             _connection = connection;
+            _peerId = peerId;
 
             _inboundStreamMap = new();
             _outboundStreamMap = new();
@@ -146,20 +149,42 @@ namespace Subverse.Server
             GC.SuppressFinalize(this);
         }
 
-        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage message, CancellationToken cancellationToken)
+        public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
+            Task newTask;
+            CancellationTokenSource newCts;
+            QuicheStream outboundStream, inboundStream;
+
+            SubversePeerId recipient;
+
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
 
-            QuicheStream outboundStream = await _connection.OpenStreamAsync(cancellationToken);
-            SendMessage(message, outboundStream);
+            if (message is not null)
+            {
+                outboundStream = await _connection.CreateOutboundStreamAsync(cancellationToken);
+                SendMessage(message, outboundStream);
 
-            QuicheStream inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-            CancellationTokenSource newCts = new();
-            Task newTask = RecieveAsync(inboundStream, newCts.Token);
+                newCts = new();
+                newTask = RecieveAsync(inboundStream, newCts.Token);
 
-            SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
-            SubversePeerId recipient = initialMessage.Recipient;
+                SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
+                recipient = initialMessage.Recipient;
+            }
+            else 
+            {
+                inboundStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
+
+                newCts = new();
+                newTask = RecieveAsync(inboundStream, newCts.Token);
+
+                SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
+                recipient = initialMessage.Recipient;
+
+                outboundStream = await _connection.CreateOutboundStreamAsync(cancellationToken);
+                SendMessage(new SubverseMessage(_peerId, 0, ProtocolCode.Command, []));
+            }
 
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
                 (key, oldCts) =>

@@ -31,7 +31,7 @@ namespace Subverse.Server
 
         private async Task ListenConnectionsAsync(QuicheConnection quicheConnection, CancellationToken cancellationToken)
         {
-            var peerConnection = new QuichePeerConnection(quicheConnection);
+            var peerConnection = new QuichePeerConnection(quicheConnection, _peerService.PeerId);
             List<SubversePeerId> connectionIds = new();
             try
             {
@@ -40,9 +40,7 @@ namespace Subverse.Server
                     using var cts = new CancellationTokenSource(5000);
 
                     SubversePeerId connectionId = await _peerService
-                            .OpenConnectionAsync(peerConnection,
-                            new SubverseMessage(_peerService.PeerId, 0,
-                            ProtocolCode.Command, []), cts.Token);
+                            .OpenConnectionAsync(peerConnection, null, cts.Token);
 
                     connectionIds.Add(connectionId);
                 }
@@ -68,7 +66,7 @@ namespace Subverse.Server
             {
                 var initialData = new byte[QuicheLibrary.MAX_DATAGRAM_LEN];
 
-                var serverConfig = new QuicheConfig()
+                var serverConfig = new QuicheConfig(isEarlyDataEnabled: true)
                 {
                     MaxInitialUniStreams = 16,
                     MaxInitialUniStreamDataSize = QuicheLibrary.MAX_DATAGRAM_LEN,
@@ -92,11 +90,11 @@ namespace Subverse.Server
                     Path.Combine(_environment.ContentRootPath, privateKeyPath)
                     );
 
-                List<Task> listenTasks = new ();
+                List<Task> listenTasks = new();
                 try
                 {
                     using var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
-                        socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+                    socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
                     _peerService.LocalEndPoint = socket.LocalEndPoint as IPEndPoint;
 
@@ -106,7 +104,7 @@ namespace Subverse.Server
                     while (!stoppingToken.IsCancellationRequested)
                     {
                         stoppingToken.ThrowIfCancellationRequested();
-                        
+
                         var quicheConnection = await listener.AcceptAsync(stoppingToken);
                         var listenTask = Task.Run(() => ListenConnectionsAsync(quicheConnection, stoppingToken));
                         listenTasks.Add(listenTask);
