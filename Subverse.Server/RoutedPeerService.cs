@@ -157,6 +157,7 @@ namespace Subverse.Server
 
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
+            _logger.LogInformation("Connection_MessageReceived");
             var connection = sender as IPeerConnection;
             if (!e.Message.Recipient.Equals(PeerId))
             {
@@ -212,6 +213,8 @@ namespace Subverse.Server
 
         private async Task ProcessEntityAsync(IPeerConnection? connection, SubverseMessage message)
         {
+            _logger.LogInformation("ProcessEntityAsync");
+
             CertificateCookie theirCookie;
             TaskCompletionSource<EncryptionKeys>? entityKeysSource;
 
@@ -222,10 +225,8 @@ namespace Subverse.Server
                 _entityKeysSources.TryAdd(theirCookie.Key, entityKeysSource);
             }
 
-            if (entityKeysSource.TrySetResult(theirCookie.KeyContainer))
-            {
-                await RouteEntityAsync(theirCookie.Key);
-            }
+            entityKeysSource.TrySetResult(theirCookie.KeyContainer);
+            await RouteEntityAsync(theirCookie.Key);
         }
 
         private async Task ProcessSipMessageAsync(IPeerConnection? connection, SubverseMessage message)
