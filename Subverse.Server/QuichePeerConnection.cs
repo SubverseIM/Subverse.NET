@@ -80,7 +80,7 @@ namespace Subverse.Server
                         cancellationToken.ThrowIfCancellationRequested();
                         bsonReader.Read();
                     }
-                    catch (EndOfStreamException)
+                    catch (Exception)
                     {
                         await Task.Delay(75);
                         continue;
