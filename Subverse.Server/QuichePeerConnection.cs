@@ -76,15 +76,15 @@ namespace Subverse.Server
 
                         _initialMessageSource.TrySetResult(message);
                         OnMessageRecieved(new MessageReceivedEventArgs(message));
-
-                        cancellationToken.ThrowIfCancellationRequested();
-                        bsonReader.Read();
                     }
-                    catch (Exception)
+                    catch (EndOfStreamException)
                     {
                         await Task.Delay(75);
                         continue;
                     }
+
+                    cancellationToken.ThrowIfCancellationRequested();
+                    bsonReader.Read();
                 }
             }, cancellationToken);
         }
