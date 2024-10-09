@@ -52,7 +52,7 @@ namespace Subverse.Server
 
         private Task RecieveAsync(QuicheStream quicheStream, CancellationToken cancellationToken)
         {
-            return Task.Run(async Task? () =>
+            return Task.Run(() =>
             {
                 using var bsonReader = new BsonDataReader(quicheStream)
                 {
