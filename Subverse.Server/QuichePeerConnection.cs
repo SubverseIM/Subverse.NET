@@ -206,19 +206,21 @@ namespace Subverse.Server
 
             lock (quicheStream)
             {
-                using var bsonWriter = new BsonDataWriter(quicheStream)
+                var bsonWriter = new BsonDataWriter(quicheStream)
                 {
                     CloseOutput = false,
                     AutoCompleteOnClose = true,
                 };
 
-                var serializer = new JsonSerializer()
+                using (bsonWriter)
                 {
-                    TypeNameHandling = TypeNameHandling.Auto,
-                    Converters = { new PeerIdConverter() },
-                };
-
-                serializer.Serialize(bsonWriter, message);
+                    var serializer = new JsonSerializer()
+                    {
+                        TypeNameHandling = TypeNameHandling.Auto,
+                        Converters = { new PeerIdConverter() },
+                    };
+                    serializer.Serialize(bsonWriter, message);
+                }
 
                 quicheStream.Flush();
             }
