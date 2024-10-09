@@ -49,7 +49,7 @@ namespace Subverse.Server
 
         private Task RecieveAsync(QuicheStream quicheStream, CancellationToken cancellationToken)
         {
-            return Task.Run(() =>
+            return Task.Run(async Task? () =>
             {
                 using var bsonReader = new BsonDataReader(quicheStream)
                 {
@@ -67,10 +67,13 @@ namespace Subverse.Server
 
                 while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
                 {
-                    var message = serializer.Deserialize<SubverseMessage>(bsonReader)
-                        ?? throw new InvalidOperationException(
-                            "Expected to recieve SubverseMessage, " +
-                            "got malformed data instead!");
+                    var message = serializer.Deserialize<SubverseMessage>(bsonReader);
+                    if (message is null)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await Task.Delay(75);
+                        continue;
+                    }
 
                     _initialMessageSource.TrySetResult(message);
                     OnMessageRecieved(new MessageReceivedEventArgs(message));
