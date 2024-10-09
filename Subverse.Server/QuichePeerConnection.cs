@@ -216,7 +216,7 @@ namespace Subverse.Server
                 var bsonWriter = new BsonDataWriter(quicheStream)
                 {
                     CloseOutput = false,
-                    AutoCompleteOnClose = true,
+                    AutoCompleteOnClose = false,
                 };
 
                 using (bsonWriter)
