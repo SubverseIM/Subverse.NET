@@ -84,7 +84,10 @@ namespace Subverse.Server
                         bsonReader.Read();
                     }
                 }
-                catch (Exception ex) { }
+                catch (Exception ex) 
+                {
+                    _logger.LogError(ex, null);
+                }
             }, cancellationToken);
 
         }
