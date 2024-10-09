@@ -13,6 +13,8 @@ namespace Subverse.Server
     {
         public static int DEFAULT_CONFIG_START_TTL = 99;
 
+        private readonly ILogger _logger;
+
         private readonly QuicheConnection _connection;
 
         private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _streamMap;
@@ -25,8 +27,9 @@ namespace Subverse.Server
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public QuichePeerConnection(QuicheConnection connection)
+        public QuichePeerConnection(ILogger logger, QuicheConnection connection)
         {
+            _logger = logger;
             _connection = connection;
 
             _streamMap = new();
@@ -65,9 +68,9 @@ namespace Subverse.Server
 
                 if (!quicheStream.CanRead) throw new NotSupportedException();
 
-                while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
+                try
                 {
-                    try
+                    while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
                     {
                         var message = serializer.Deserialize<SubverseMessage>(bsonReader)
                             ?? throw new InvalidOperationException(
@@ -80,12 +83,10 @@ namespace Subverse.Server
                         cancellationToken.ThrowIfCancellationRequested();
                         bsonReader.Read();
                     }
-                    catch (EndOfStreamException)
-                    {
-                        await Task.Delay(75, cancellationToken);
-                    }
                 }
+                catch (Exception ex) { }
             }, cancellationToken);
+
         }
 
         protected virtual void OnMessageRecieved(MessageReceivedEventArgs ev)
