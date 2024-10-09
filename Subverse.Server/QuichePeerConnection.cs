@@ -89,6 +89,7 @@ namespace Subverse.Server
                 catch (Exception ex) 
                 {
                     _logger.LogError(ex, null);
+                    throw;
                 }
             }, cancellationToken);
 
