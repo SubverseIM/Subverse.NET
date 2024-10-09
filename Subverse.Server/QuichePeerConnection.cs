@@ -70,7 +70,7 @@ namespace Subverse.Server
 
                 try
                 {
-                    while (!cancellationToken.IsCancellationRequested && 
+                    while (!cancellationToken.IsCancellationRequested &&
                         quicheStream.CanRead && bsonReader.Read())
                     {
                         var message = serializer.Deserialize<SubverseMessage>(bsonReader)
@@ -86,7 +86,7 @@ namespace Subverse.Server
 
                     _logger.LogInformation("Stopped receiving from an entity.");
                 }
-                catch (Exception ex) 
+                catch (Exception ex)
                 {
                     _logger.LogError(ex, null);
                     throw;
@@ -226,21 +226,18 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            var bsonWriter = new BsonDataWriter(quicheStream)
+            using var bsonWriter = new BsonDataWriter(quicheStream)
             {
                 CloseOutput = false,
                 AutoCompleteOnClose = true,
             };
 
-            using (bsonWriter)
+            var serializer = new JsonSerializer()
             {
-                var serializer = new JsonSerializer()
-                {
-                    TypeNameHandling = TypeNameHandling.Auto,
-                    Converters = { new PeerIdConverter() },
-                };
-                serializer.Serialize(bsonWriter, message);
-            }
+                TypeNameHandling = TypeNameHandling.Auto,
+                Converters = { new PeerIdConverter() },
+            };
+            serializer.Serialize(bsonWriter, message);
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
