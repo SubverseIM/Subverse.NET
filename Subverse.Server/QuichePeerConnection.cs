@@ -13,6 +13,8 @@ namespace Subverse.Server
     {
         public static int DEFAULT_CONFIG_START_TTL = 99;
 
+        private readonly ILogger _logger;
+
         private readonly QuicheConnection _connection;
 
         private readonly ConcurrentDictionary<SubversePeerId, QuicheStream> _streamMap;
@@ -25,8 +27,9 @@ namespace Subverse.Server
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public QuichePeerConnection(QuicheConnection connection)
+        public QuichePeerConnection(ILogger logger, QuicheConnection connection)
         {
+            _logger = logger;
             _connection = connection;
 
             _streamMap = new();
@@ -65,20 +68,31 @@ namespace Subverse.Server
 
                 if (!quicheStream.CanRead) throw new NotSupportedException();
 
-                while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
+                try
                 {
-                    var message = serializer.Deserialize<SubverseMessage>(bsonReader)
-                        ?? throw new InvalidOperationException(
-                            "Expected to recieve SubverseMessage, " +
-                            "got malformed data instead!");
+                    while (!cancellationToken.IsCancellationRequested &&
+                        quicheStream.CanRead && bsonReader.Read())
+                    {
+                        var message = serializer.Deserialize<SubverseMessage>(bsonReader)
+                            ?? throw new InvalidOperationException(
+                                "Expected to recieve SubverseMessage, " +
+                                "got malformed data instead!");
 
-                    _initialMessageSource.TrySetResult(message);
-                    OnMessageRecieved(new MessageReceivedEventArgs(message));
+                        _initialMessageSource.TrySetResult(message);
+                        OnMessageRecieved(new MessageReceivedEventArgs(message));
 
-                    cancellationToken.ThrowIfCancellationRequested();
-                    bsonReader.Read();
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
+                    _logger.LogInformation("Stopped receiving from an entity.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, null);
+                    throw;
                 }
             }, cancellationToken);
+
         }
 
         protected virtual void OnMessageRecieved(MessageReceivedEventArgs ev)
@@ -131,6 +145,10 @@ namespace Subverse.Server
         public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
             QuicheStream quicheStream;
+
+            CancellationTokenSource newCts;
+            Task newTask;
+
             SubversePeerId recipient;
 
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
@@ -138,7 +156,11 @@ namespace Subverse.Server
             if (message is not null)
             {
                 quicheStream = await _connection.CreateOutboundStreamAsync(QuicheStream.Direction.Bidirectional, cancellationToken);
+
                 SendMessage(message, quicheStream);
+
+                newCts = new();
+                newTask = RecieveAsync(quicheStream, newCts.Token);
 
                 recipient = message.Recipient;
             }
@@ -146,39 +168,39 @@ namespace Subverse.Server
             {
                 quicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-                CancellationTokenSource newCts = new();
-                Task newTask = RecieveAsync(quicheStream, newCts.Token);
+                newCts = new();
+                newTask = RecieveAsync(quicheStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
                 recipient = initialMessage.Recipient;
-
-                _ = _ctsMap.AddOrUpdate(recipient, newCts,
-                    (key, oldCts) =>
-                    {
-                        if (!oldCts.IsCancellationRequested)
-                        {
-                            oldCts.Dispose();
-                        }
-
-                        return newCts;
-                    });
-
-                _ = _taskMap.AddOrUpdate(recipient, newTask,
-                    (key, oldTask) =>
-                    {
-                        try
-                        {
-                            oldTask.Wait();
-                        }
-                        catch (AggregateException ex) when (ex.InnerExceptions.All(
-                            x => x is QuicheException ||
-                            x is NotSupportedException ||
-                            x is OperationCanceledException))
-                        { }
-
-                        return newTask;
-                    });
             }
+
+            _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                (key, oldCts) =>
+                {
+                    if (!oldCts.IsCancellationRequested)
+                    {
+                        oldCts.Dispose();
+                    }
+
+                    return newCts;
+                });
+
+            _ = _taskMap.AddOrUpdate(recipient, newTask,
+                (key, oldTask) =>
+                {
+                    try
+                    {
+                        oldTask.Wait();
+                    }
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
+                        x => x is QuicheException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
+                    { }
+
+                    return newTask;
+                });
 
             _ = _streamMap.AddOrUpdate(recipient, quicheStream,
                 (key, oldQuicheStream) =>
@@ -204,24 +226,18 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            lock (quicheStream)
+            using var bsonWriter = new BsonDataWriter(quicheStream)
             {
-                using var bsonWriter = new BsonDataWriter(quicheStream)
-                {
-                    CloseOutput = false,
-                    AutoCompleteOnClose = true,
-                };
+                CloseOutput = false,
+                AutoCompleteOnClose = true,
+            };
 
-                var serializer = new JsonSerializer()
-                {
-                    TypeNameHandling = TypeNameHandling.Auto,
-                    Converters = { new PeerIdConverter() },
-                };
-
-                serializer.Serialize(bsonWriter, message);
-
-                quicheStream.Flush();
-            }
+            var serializer = new JsonSerializer()
+            {
+                TypeNameHandling = TypeNameHandling.Auto,
+                Converters = { new PeerIdConverter() },
+            };
+            serializer.Serialize(bsonWriter, message);
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
