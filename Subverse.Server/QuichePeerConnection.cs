@@ -142,7 +142,6 @@ namespace Subverse.Server
             if (message is not null)
             {
                 quicheStream = await _connection.CreateOutboundStreamAsync(QuicheStream.Direction.Bidirectional, cancellationToken);
-                quicheStream.ReadTimeout = 5000;
 
                 SendMessage(message, quicheStream);
 
@@ -154,7 +153,6 @@ namespace Subverse.Server
             else
             {
                 quicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
-                quicheStream.ReadTimeout = 5000;
 
                 newCts = new();
                 newTask = RecieveAsync(quicheStream, newCts.Token);
