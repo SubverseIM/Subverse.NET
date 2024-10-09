@@ -131,6 +131,10 @@ namespace Subverse.Server
         public async Task<SubversePeerId> CompleteHandshakeAsync(SubverseMessage? message, CancellationToken cancellationToken)
         {
             QuicheStream quicheStream;
+
+            CancellationTokenSource newCts;
+            Task newTask;
+
             SubversePeerId recipient;
 
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
@@ -140,45 +144,48 @@ namespace Subverse.Server
                 quicheStream = await _connection.CreateOutboundStreamAsync(QuicheStream.Direction.Bidirectional, cancellationToken);
                 SendMessage(message, quicheStream);
 
+                newCts = new();
+                newTask = RecieveAsync(quicheStream, newCts.Token);
+
                 recipient = message.Recipient;
             }
             else
             {
                 quicheStream = await _connection.AcceptInboundStreamAsync(cancellationToken);
 
-                CancellationTokenSource newCts = new();
-                Task newTask = RecieveAsync(quicheStream, newCts.Token);
+                newCts = new();
+                newTask = RecieveAsync(quicheStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
                 recipient = initialMessage.Recipient;
-
-                _ = _ctsMap.AddOrUpdate(recipient, newCts,
-                    (key, oldCts) =>
-                    {
-                        if (!oldCts.IsCancellationRequested)
-                        {
-                            oldCts.Dispose();
-                        }
-
-                        return newCts;
-                    });
-
-                _ = _taskMap.AddOrUpdate(recipient, newTask,
-                    (key, oldTask) =>
-                    {
-                        try
-                        {
-                            oldTask.Wait();
-                        }
-                        catch (AggregateException ex) when (ex.InnerExceptions.All(
-                            x => x is QuicheException ||
-                            x is NotSupportedException ||
-                            x is OperationCanceledException))
-                        { }
-
-                        return newTask;
-                    });
             }
+
+            _ = _ctsMap.AddOrUpdate(recipient, newCts,
+                (key, oldCts) =>
+                {
+                    if (!oldCts.IsCancellationRequested)
+                    {
+                        oldCts.Dispose();
+                    }
+
+                    return newCts;
+                });
+
+            _ = _taskMap.AddOrUpdate(recipient, newTask,
+                (key, oldTask) =>
+                {
+                    try
+                    {
+                        oldTask.Wait();
+                    }
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(
+                        x => x is QuicheException ||
+                        x is NotSupportedException ||
+                        x is OperationCanceledException))
+                    { }
+
+                    return newTask;
+                });
 
             _ = _streamMap.AddOrUpdate(recipient, quicheStream,
                 (key, oldQuicheStream) =>
