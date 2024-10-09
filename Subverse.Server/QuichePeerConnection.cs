@@ -67,10 +67,12 @@ namespace Subverse.Server
 
                 while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
                 {
+                    Console.WriteLine("Deserializing message...");
                     var message = serializer.Deserialize<SubverseMessage>(bsonReader)
                         ?? throw new InvalidOperationException(
                             "Expected to recieve SubverseMessage, " +
                             "got malformed data instead!");
+                    Console.WriteLine("Deserialized message.");
 
                     _initialMessageSource.TrySetResult(message);
                     OnMessageRecieved(new MessageReceivedEventArgs(message));
@@ -211,26 +213,23 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            lock (quicheStream)
+            var bsonWriter = new BsonDataWriter(quicheStream)
             {
-                var bsonWriter = new BsonDataWriter(quicheStream)
+                CloseOutput = false,
+                AutoCompleteOnClose = true,
+            };
+
+            using (bsonWriter)
+            {
+                var serializer = new JsonSerializer()
                 {
-                    CloseOutput = false,
-                    AutoCompleteOnClose = false,
+                    TypeNameHandling = TypeNameHandling.Auto,
+                    Converters = { new PeerIdConverter() },
                 };
-
-                using (bsonWriter)
-                {
-                    var serializer = new JsonSerializer()
-                    {
-                        TypeNameHandling = TypeNameHandling.Auto,
-                        Converters = { new PeerIdConverter() },
-                    };
-                    serializer.Serialize(bsonWriter, message);
-                }
-
-                quicheStream.Flush();
+                serializer.Serialize(bsonWriter, message);
             }
+
+            quicheStream.Flush();
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
