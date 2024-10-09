@@ -70,7 +70,8 @@ namespace Subverse.Server
 
                 try
                 {
-                    while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
+                    while (!cancellationToken.IsCancellationRequested && 
+                        quicheStream.CanRead && bsonReader.Read())
                     {
                         var message = serializer.Deserialize<SubverseMessage>(bsonReader)
                             ?? throw new InvalidOperationException(
@@ -81,8 +82,9 @@ namespace Subverse.Server
                         OnMessageRecieved(new MessageReceivedEventArgs(message));
 
                         cancellationToken.ThrowIfCancellationRequested();
-                        bsonReader.Read();
                     }
+
+                    _logger.LogInformation("Stopped receiving from an entity.");
                 }
                 catch (Exception ex) 
                 {
