@@ -230,6 +230,8 @@ namespace Subverse.Server
                 };
                 serializer.Serialize(bsonWriter, message);
             }
+
+            quicheStream.Flush();
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
