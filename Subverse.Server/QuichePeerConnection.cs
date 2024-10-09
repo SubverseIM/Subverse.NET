@@ -67,21 +67,13 @@ namespace Subverse.Server
 
                 while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
                 {
-                    try
-                    {
-                        var message = serializer.Deserialize<SubverseMessage>(bsonReader)
-                            ?? throw new InvalidOperationException(
-                                "Expected to recieve SubverseMessage, " +
-                                "got malformed data instead!");
+                    var message = serializer.Deserialize<SubverseMessage>(bsonReader)
+                        ?? throw new InvalidOperationException(
+                            "Expected to recieve SubverseMessage, " +
+                            "got malformed data instead!");
 
-                        _initialMessageSource.TrySetResult(message);
-                        OnMessageRecieved(new MessageReceivedEventArgs(message));
-                    }
-                    catch (EndOfStreamException)
-                    {
-                        await Task.Delay(75);
-                        continue;
-                    }
+                    _initialMessageSource.TrySetResult(message);
+                    OnMessageRecieved(new MessageReceivedEventArgs(message));
 
                     cancellationToken.ThrowIfCancellationRequested();
                     bsonReader.Read();
