@@ -86,15 +86,7 @@ namespace Subverse.Server
                 }
                 catch (OperationCanceledException)
                 {
-                    if (_initialMessageSource.Task.IsCompletedSuccessfully)
-                    {
-                        _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result}.");
-                    }
-                    else
-                    {
-                        _initialMessageSource.TrySetCanceled(cancellationToken);
-                        _logger.LogInformation($"Stopped receiving from undesignated proxy.");
-                    }
+                    _initialMessageSource.TrySetCanceled(cancellationToken);
                     throw;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -102,6 +94,17 @@ namespace Subverse.Server
                     _initialMessageSource.TrySetException(ex);
                     _logger.LogError(ex, null);
                     throw;
+                }
+                finally 
+                {
+                    if (_initialMessageSource.Task.IsCompletedSuccessfully)
+                    {
+                        _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result}.");
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"Stopped receiving from undesignated proxy.");
+                    }
                 }
             }, cancellationToken);
 
