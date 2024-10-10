@@ -13,7 +13,7 @@ namespace Subverse.Server
     {
         public static int DEFAULT_CONFIG_START_TTL = 99;
 
-        private readonly ILogger _logger;
+        private readonly ILogger<QuichePeerConnection> _logger;
 
         private readonly QuicheConnection _connection;
 
@@ -27,7 +27,7 @@ namespace Subverse.Server
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public QuichePeerConnection(ILogger logger, QuicheConnection connection)
+        public QuichePeerConnection(ILogger<QuichePeerConnection> logger, QuicheConnection connection)
         {
             _logger = logger;
             _connection = connection;

@@ -16,22 +16,22 @@ namespace Subverse.Server
         private readonly IConfiguration _configuration;
 
         private readonly ILogger<QuicheListenerService> _logger;
-        private readonly ILoggerProvider _loggerProvider;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly IPeerService _peerService;
 
-        public QuicheListenerService(IHostEnvironment environment, IConfiguration configuration, ILogger<QuicheListenerService> logger, ILoggerProvider loggerProvider, IPeerService hubService)
+        public QuicheListenerService(IHostEnvironment environment, IConfiguration configuration, ILogger<QuicheListenerService> logger, ILoggerFactory loggerFactory, IPeerService hubService)
         {
             _environment = environment;
             _configuration = configuration;
 
             _logger = logger;
-            _loggerProvider = loggerProvider;
+            _loggerFactory = loggerFactory;
             _peerService = hubService;
         }
 
         private async Task ListenConnectionsAsync(QuicheConnection quicheConnection, CancellationToken cancellationToken)
         {
-            var peerConnection = new QuichePeerConnection(_loggerProvider.CreateLogger("QuicheConnection"), quicheConnection);
+            var peerConnection = new QuichePeerConnection(_loggerFactory.CreateLogger<QuichePeerConnection>(), quicheConnection);
             List<SubversePeerId> connectionIds = new();
             try
             {

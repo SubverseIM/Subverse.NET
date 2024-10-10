@@ -23,7 +23,7 @@ internal class PeerBootstrapService : BackgroundService
 
     private readonly IConfiguration _configuration;
     private readonly ILogger<PeerBootstrapService> _logger;
-    private readonly ILoggerProvider _loggerProvider;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly IPeerService _peerService;
 
     private readonly HttpClient _http;
@@ -35,7 +35,7 @@ internal class PeerBootstrapService : BackgroundService
 
     private bool disposedValue;
 
-    public PeerBootstrapService(IConfiguration configuration, ILogger<PeerBootstrapService> logger, ILoggerProvider loggerProvider, IPeerService hubService)
+    public PeerBootstrapService(IConfiguration configuration, ILogger<PeerBootstrapService> logger, ILoggerFactory loggerFactory, IPeerService hubService)
     {
         _configuration = configuration;
 
@@ -43,7 +43,7 @@ internal class PeerBootstrapService : BackgroundService
             ?? DEFAULT_CONFIG_BOOTSTRAP_API;
 
         _logger = logger;
-        _loggerProvider = loggerProvider;
+        _loggerFactory = loggerFactory;
         _peerService = hubService;
 
         _http = new HttpClient()
@@ -152,7 +152,7 @@ internal class PeerBootstrapService : BackgroundService
                         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
                         var quicheConnection = QuicheConnection.Connect(socket, remoteEndPoint, clientConfig, hostname);
-                        QuichePeerConnection peerConnection = new(_loggerProvider.CreateLogger("QuicheConnection"), quicheConnection);
+                        QuichePeerConnection peerConnection = new(_loggerFactory.CreateLogger<QuichePeerConnection>(), quicheConnection);
 
                         _connectionMap.AddOrUpdate(hostname, peerConnection,
                             (key, oldConnection) =>
