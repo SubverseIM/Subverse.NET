@@ -83,11 +83,23 @@ namespace Subverse.Server
 
                         cancellationToken.ThrowIfCancellationRequested();
                     }
-
-                    _logger.LogInformation("Stopped receiving from an entity.");
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException)
                 {
+                    if (_initialMessageSource.Task.IsCompletedSuccessfully)
+                    {
+                        _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result}.");
+                    }
+                    else
+                    {
+                        _initialMessageSource.TrySetCanceled(cancellationToken);
+                        _logger.LogInformation($"Stopped receiving from undesignated proxy.");
+                    }
+                    throw;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _initialMessageSource.TrySetException(ex);
                     _logger.LogError(ex, null);
                     throw;
                 }
@@ -237,6 +249,7 @@ namespace Subverse.Server
                 TypeNameHandling = TypeNameHandling.Auto,
                 Converters = { new PeerIdConverter() },
             };
+
             serializer.Serialize(bsonWriter, message);
         }
 
