@@ -78,14 +78,14 @@ namespace Subverse.Server
                         {
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
+
+                            cancellationToken.ThrowIfCancellationRequested();
+                            bsonReader.Read();
                         }
                         else 
                         {
                             await Task.Delay(75, cancellationToken);
                         }
-
-                        cancellationToken.ThrowIfCancellationRequested();
-                        bsonReader.Read();
                     }
                 }
                 catch (OperationCanceledException)
