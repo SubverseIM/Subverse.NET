@@ -70,8 +70,7 @@ namespace Subverse.Server
 
                 try
                 {
-                    while (!cancellationToken.IsCancellationRequested &&
-                        quicheStream.CanRead && bsonReader.Read())
+                    while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
                     {
                         var message = serializer.Deserialize<SubverseMessage>(bsonReader)
                             ?? throw new InvalidOperationException(
@@ -82,6 +81,7 @@ namespace Subverse.Server
                         OnMessageRecieved(new MessageReceivedEventArgs(message));
 
                         cancellationToken.ThrowIfCancellationRequested();
+                        bsonReader.Read();
                     }
                 }
                 catch (OperationCanceledException)
