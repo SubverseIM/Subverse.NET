@@ -74,13 +74,13 @@ namespace Subverse.Server
                     {
                         try
                         {
-                            bsonReader.Read();
-
                             var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
                                 throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
+
+                            bsonReader.Read();
                         }
                         catch (JsonException) { await Task.Delay(150); }
 
