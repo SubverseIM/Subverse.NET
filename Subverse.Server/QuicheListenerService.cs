@@ -66,7 +66,9 @@ namespace Subverse.Server
 
                 MaxInitialBidiStreams = 16,
                 MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
-                MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN
+                MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
+
+                MaxIdleTimeout = 10_000,
             };
 
             serverConfig.SetApplicationProtocols("SubverseV2");
