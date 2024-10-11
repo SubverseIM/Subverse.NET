@@ -82,7 +82,7 @@ namespace Subverse.Server
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
                         }
-                        catch (JsonException) { }
+                        catch (JsonException) { await Task.Delay(75); }
 
                         cancellationToken.ThrowIfCancellationRequested();
                     }
