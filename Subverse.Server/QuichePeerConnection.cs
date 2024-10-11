@@ -75,15 +75,14 @@ namespace Subverse.Server
                         try
                         {
                             bsonReader.Read();
-                            
+
                             var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
                                 throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
                         }
-                        catch (InvalidOperationException) { }
-                        catch (JsonReaderException) { }
+                        catch (JsonReaderException) { await Task.Delay(75); }
 
                         cancellationToken.ThrowIfCancellationRequested();
                     }
@@ -103,7 +102,7 @@ namespace Subverse.Server
                 {
                     if (_initialMessageSource.Task.IsCompletedSuccessfully)
                     {
-                        _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result}.");
+                        _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result.Recipient}.");
                     }
                     else
                     {
