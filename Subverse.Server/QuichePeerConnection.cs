@@ -68,7 +68,12 @@ namespace Subverse.Server
                         {
                             int rawMessageCount = binaryReader.ReadInt32();
                             byte[] rawMessageBytes = new byte[++rawMessageCount];
-                            quicheStream.ReadExactly(rawMessageBytes);
+
+                            int readCount = 0;
+                            while (readCount < rawMessageCount) 
+                            {
+                                readCount += quicheStream.Read(rawMessageBytes.AsSpan(readCount));
+                            }
 
                             using MemoryStream rawMessageStream = new(rawMessageBytes);
                             using BsonDataReader bsonReader = new(rawMessageStream);
