@@ -57,28 +57,26 @@ namespace Subverse.Server
             {
                 try
                 {
-                    using (var streamReader = new StreamReader(quicheStream, Encoding.UTF8, leaveOpen: true))
+                    while (!cancellationToken.IsCancellationRequested)
                     {
-                        while (!cancellationToken.IsCancellationRequested)
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
+
+                        using StreamReader streamReader = new (quicheStream, Encoding.UTF8, leaveOpen: true);
+                        string? jsonMessage = await streamReader.ReadLineAsync(cancellationToken);
+
+                        if (jsonMessage is not null)
                         {
-                            cancellationToken.ThrowIfCancellationRequested();
+                            var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
+                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
-                            if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
-
-                            string? jsonMessage = await streamReader.ReadLineAsync(cancellationToken);
-                            if (jsonMessage is not null)
-                            {
-                                _logger.LogInformation($"First character was: {(int)jsonMessage[0]}");
-                                var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
-                                        throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
-
-                                _initialMessageSource.TrySetResult(message);
-                                OnMessageRecieved(new MessageReceivedEventArgs(message));
-                            }
-                            else 
-                            {
-                                await Task.Delay(75, cancellationToken); 
-                            }
+                            _initialMessageSource.TrySetResult(message);
+                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                        }
+                        else
+                        {
+                            await Task.Delay(75, cancellationToken);
                         }
                     }
                 }
