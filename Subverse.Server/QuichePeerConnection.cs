@@ -67,15 +67,10 @@ namespace Subverse.Server
                         try
                         {
                             int rawMessageCount = binaryReader.ReadInt32();
-                            byte[] rawMessageBytes = binaryReader.ReadBytes(++rawMessageCount);
-
-                            if (rawMessageBytes.Length < rawMessageCount) 
-                            {
-                                throw new EndOfStreamException();
-                            }
+                            byte[] rawMessageBytes = new byte[++rawMessageCount];
+                            quicheStream.ReadExactly(rawMessageBytes);
 
                             using MemoryStream rawMessageStream = new(rawMessageBytes);
-
                             using BsonDataReader bsonReader = new(rawMessageStream);
                             JsonSerializer serializer = new()
                             {
