@@ -68,7 +68,7 @@ namespace Subverse.Server
                             string? jsonMessage = await streamReader.ReadToEndAsync(cancellationToken);
                             if (jsonMessage is not null)
                             {
-                                var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
+                                var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage[..^2], new PeerIdConverter()) ??
                                         throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
                                 _initialMessageSource.TrySetResult(message);
