@@ -68,6 +68,12 @@ namespace Subverse.Server
                         {
                             int rawMessageCount = binaryReader.ReadInt32();
                             byte[] rawMessageBytes = binaryReader.ReadBytes(++rawMessageCount);
+
+                            if (rawMessageBytes.Length < rawMessageCount) 
+                            {
+                                throw new EndOfStreamException();
+                            }
+
                             using MemoryStream rawMessageStream = new(rawMessageBytes);
 
                             using BsonDataReader bsonReader = new(rawMessageStream);
