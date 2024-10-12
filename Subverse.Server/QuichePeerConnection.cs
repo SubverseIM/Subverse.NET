@@ -76,13 +76,13 @@ namespace Subverse.Server
 
                         try
                         {
+                            bsonReader.Read();
+
                             var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
                                     throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
-
-                            bsonReader.Read();
                         }
                         catch (JsonException) { await Task.Delay(75, cancellationToken); }
                     }
@@ -244,11 +244,18 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            using (var streamWriter = new StreamWriter(quicheStream, Encoding.UTF8, leaveOpen: true))
+            using BsonDataWriter bsonWriter = new(quicheStream)
             {
-                string jsonMessage = JsonConvert.SerializeObject(message, new PeerIdConverter());
-                streamWriter.WriteLine(jsonMessage);
-            }
+                CloseOutput = false,
+                AutoCompleteOnClose = true,
+            };
+
+            var serializer = new JsonSerializer()
+            {
+                Converters = { new PeerIdConverter() }
+            };
+
+            serializer.Serialize(bsonWriter, message);
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
