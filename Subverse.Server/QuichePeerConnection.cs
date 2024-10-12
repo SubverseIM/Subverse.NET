@@ -57,28 +57,32 @@ namespace Subverse.Server
             {
                 try
                 {
-                    using StreamReader streamReader = new (quicheStream, Encoding.UTF8, leaveOpen: true);
+                    using BsonDataReader bsonReader = new(quicheStream)
+                    {
+                        CloseInput = false,
+                        SupportMultipleContent = true,
+                    };
+
+                    var serializer = new JsonSerializer() 
+                    { 
+                        Converters = { new PeerIdConverter() }
+                    };
+
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
                         if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                        string? jsonMessage = (await streamReader.ReadLineAsync(cancellationToken))?.TrimStart('\uFEFF');
-                        if (jsonMessage is not null)
-                        {
-                            _logger.LogInformation($"Got JSON:\n{jsonMessage}");
-
-                            var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
+                        try 
+                        { 
+                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
                                     throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
                         }
-                        else
-                        {
-                            await Task.Delay(75, cancellationToken);
-                        }
+                        catch(JsonException) { await Task.Delay(75, cancellationToken); }
                     }
                 }
                 catch (OperationCanceledException)
