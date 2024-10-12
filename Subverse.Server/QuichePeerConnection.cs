@@ -74,7 +74,7 @@ namespace Subverse.Server
                                 _initialMessageSource.TrySetResult(message);
                                 OnMessageRecieved(new MessageReceivedEventArgs(message));
                             }
-                            else { streamReader.Read(); await Task.Delay(75, cancellationToken); }
+                            else { quicheStream.ReadByte(); await Task.Delay(75, cancellationToken); }
                         }
                     }
                 }
