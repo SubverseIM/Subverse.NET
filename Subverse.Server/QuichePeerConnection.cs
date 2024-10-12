@@ -55,25 +55,27 @@ namespace Subverse.Server
         {
             return Task.Run(async Task? () =>
             {
-                using var streamReader = new StreamReader(quicheStream, Encoding.UTF8, leaveOpen: true);
                 try
                 {
-                    while (!cancellationToken.IsCancellationRequested)
+                    using (var streamReader = new StreamReader(quicheStream, Encoding.UTF8, leaveOpen: true))
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-
-                        if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
-
-                        string? jsonMessage = await streamReader.ReadLineAsync(cancellationToken);
-                        if (jsonMessage is not null)
+                        while (!cancellationToken.IsCancellationRequested)
                         {
-                            var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
-                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+                            cancellationToken.ThrowIfCancellationRequested();
 
-                            _initialMessageSource.TrySetResult(message);
-                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
+
+                            string? jsonMessage = await streamReader.ReadLineAsync(cancellationToken);
+                            if (jsonMessage is not null)
+                            {
+                                var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
+                                        throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+
+                                _initialMessageSource.TrySetResult(message);
+                                OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            }
+                            else { await Task.Delay(75, cancellationToken); }
                         }
-                        else { await Task.Delay(75, cancellationToken); }
                     }
                 }
                 catch (OperationCanceledException)
@@ -233,19 +235,11 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            using var bsonWriter = new BsonDataWriter(quicheStream)
+            using (var streamWriter = new StreamWriter(quicheStream, Encoding.UTF8, leaveOpen: true))
             {
-                CloseOutput = false,
-                AutoCompleteOnClose = true,
-            };
-
-            var serializer = new JsonSerializer()
-            {
-                TypeNameHandling = TypeNameHandling.Auto,
-                Converters = { new PeerIdConverter() },
-            };
-
-            serializer.Serialize(bsonWriter, message);
+                string jsonMessage = JsonConvert.SerializeObject(message, new PeerIdConverter());
+                streamWriter.WriteLine(jsonMessage);
+            }
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
