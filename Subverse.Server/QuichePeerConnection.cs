@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Bson;
+using Org.BouncyCastle.Crypto.Paddings;
 using Quiche.NET;
 using Subverse.Abstractions;
 using Subverse.Implementations;
@@ -57,38 +58,47 @@ namespace Subverse.Server
             {
                 try
                 {
-                    using BinaryReader binaryReader = new(quicheStream, Encoding.UTF8, leaveOpen: true);
+                    byte[] rawMessageCountBytes = new byte[sizeof(int)];
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
                         if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                        try
+                        for (int i = 0; i < rawMessageCountBytes.Length;)
                         {
-                            int rawMessageCount = binaryReader.ReadInt32();
-                            byte[] rawMessageBytes = new byte[++rawMessageCount];
-
-                            int readCount = 0;
-                            while (readCount < rawMessageCount) 
+                            int value = quicheStream.ReadByte();
+                            if (value >= 0)
                             {
-                                readCount += quicheStream.Read(rawMessageBytes.AsSpan(readCount));
+                                rawMessageCountBytes[i++] = (byte)value;
                             }
-
-                            using MemoryStream rawMessageStream = new(rawMessageBytes);
-                            using BsonDataReader bsonReader = new(rawMessageStream);
-                            JsonSerializer serializer = new()
-                            {
-                                Converters = { new PeerIdConverter() }
-                            };
-
-                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
-                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
-
-                            _initialMessageSource.TrySetResult(message);
-                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            else { await Task.Yield(); }
                         }
-                        catch (EndOfStreamException) { await Task.Delay(75, cancellationToken); }
+                        int rawMessageCount = BitConverter.ToInt32(rawMessageCountBytes);
+
+                        byte[] rawMessageBytes = new byte[++rawMessageCount];
+                        for (int readCount = 0; readCount < rawMessageCount;)
+                        {
+                            int justRead = quicheStream.Read(rawMessageBytes.AsSpan(readCount));
+                            if (justRead > 0)
+                            {
+                                readCount += justRead;
+                            }
+                            else { await Task.Yield(); }
+                        }
+
+                        using MemoryStream rawMessageStream = new(rawMessageBytes);
+                        using BsonDataReader bsonReader = new(rawMessageStream);
+                        JsonSerializer serializer = new()
+                        {
+                            Converters = { new PeerIdConverter() }
+                        };
+
+                        var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
+                                throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+
+                        _initialMessageSource.TrySetResult(message);
+                        OnMessageRecieved(new MessageReceivedEventArgs(message));
                     }
                 }
                 catch (OperationCanceledException)
