@@ -240,7 +240,7 @@ namespace Subverse.Server
             using (var streamWriter = new StreamWriter(quicheStream, Encoding.UTF8, leaveOpen: true))
             {
                 string jsonMessage = JsonConvert.SerializeObject(message, new PeerIdConverter());
-                streamWriter.Write(jsonMessage);
+                streamWriter.WriteLine(jsonMessage);
             }
         }
 
