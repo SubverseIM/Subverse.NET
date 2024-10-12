@@ -6,6 +6,7 @@ using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Types;
 using System.Collections.Concurrent;
+using System.Text;
 
 namespace Subverse.Server
 {
@@ -54,37 +55,25 @@ namespace Subverse.Server
         {
             return Task.Run(async Task? () =>
             {
-                using var bsonReader = new BsonDataReader(quicheStream)
-                {
-                    CloseInput = false,
-                    SupportMultipleContent = true,
-                };
-
-                var serializer = new JsonSerializer()
-                {
-                    TypeNameHandling = TypeNameHandling.Objects,
-                    Converters = { new PeerIdConverter() },
-                };
-
+                using var streamReader = new StreamReader(quicheStream, Encoding.UTF8, leaveOpen: true);
                 try
                 {
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        if (!quicheStream.CanRead) throw new NotSupportedException();
+                        if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                        try
+                        string? jsonMessage = await streamReader.ReadLineAsync(cancellationToken);
+                        if (jsonMessage is not null)
                         {
-                            bsonReader.Read();
-
-                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
-                                throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+                            var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
+                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
                         }
-                        catch (JsonException) { await Task.Delay(75); }
+                        else { await Task.Delay(75, cancellationToken); }
                     }
                 }
                 catch (OperationCanceledException)
