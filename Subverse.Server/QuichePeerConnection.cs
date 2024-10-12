@@ -72,7 +72,7 @@ namespace Subverse.Server
                             {
                                 rawMessageCountBytes[i++] = (byte)value;
                             }
-                            else { await Task.Yield(); }
+                            else { await Task.Delay(75); }
                         }
                         int rawMessageCount = BitConverter.ToInt32(rawMessageCountBytes);
 
@@ -84,7 +84,7 @@ namespace Subverse.Server
                             {
                                 readCount += justRead;
                             }
-                            else { await Task.Yield(); }
+                            else { await Task.Delay(75); }
                         }
 
                         using MemoryStream rawMessageStream = new(rawMessageBytes);
