@@ -65,7 +65,7 @@ namespace Subverse.Server
 
                             if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                            string? jsonMessage = await streamReader.ReadLineAsync();
+                            string? jsonMessage = await streamReader.ReadLineAsync(cancellationToken);
                             if (jsonMessage is not null)
                             {
                                 var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
@@ -75,9 +75,7 @@ namespace Subverse.Server
                                 OnMessageRecieved(new MessageReceivedEventArgs(message));
                             }
                             else 
-                            { 
-                                quicheStream.ReadByte(); 
-                                streamReader.DiscardBufferedData(); 
+                            {
                                 await Task.Delay(75, cancellationToken); 
                             }
                         }
@@ -243,7 +241,7 @@ namespace Subverse.Server
             using (var streamWriter = new StreamWriter(quicheStream, Encoding.UTF8, leaveOpen: true))
             {
                 string jsonMessage = JsonConvert.SerializeObject(message, new PeerIdConverter());
-                streamWriter.WriteLine(jsonMessage);
+                streamWriter.Write(jsonMessage);
             }
         }
 
