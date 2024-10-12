@@ -63,8 +63,8 @@ namespace Subverse.Server
                         SupportMultipleContent = true,
                     };
 
-                    var serializer = new JsonSerializer() 
-                    { 
+                    var serializer = new JsonSerializer()
+                    {
                         Converters = { new PeerIdConverter() }
                     };
 
@@ -74,8 +74,8 @@ namespace Subverse.Server
 
                         if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                        try 
-                        { 
+                        try
+                        {
                             bsonReader.Read();
 
                             var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
@@ -84,7 +84,7 @@ namespace Subverse.Server
                             _initialMessageSource.TrySetResult(message);
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
                         }
-                        catch(JsonException) { await Task.Delay(75, cancellationToken); }
+                        catch (JsonException) { await Task.Delay(75, cancellationToken); }
                     }
                 }
                 catch (OperationCanceledException)
