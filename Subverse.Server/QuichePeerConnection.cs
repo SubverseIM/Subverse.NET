@@ -57,34 +57,28 @@ namespace Subverse.Server
             {
                 try
                 {
-                    using BsonDataReader bsonReader = new(quicheStream)
-                    {
-                        CloseInput = false,
-                        SupportMultipleContent = true,
-                    };
-
-                    var serializer = new JsonSerializer()
-                    {
-                        Converters = { new PeerIdConverter() }
-                    };
-
+                    using BinaryReader binaryReader = new(quicheStream, Encoding.UTF8, leaveOpen: true);
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
                         if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                        try
+                        int rawMessageCount = binaryReader.ReadInt32();
+                        byte[] rawMessageBytes = binaryReader.ReadBytes(++rawMessageCount);
+                        using MemoryStream rawMessageStream = new(rawMessageBytes);
+
+                        using BsonDataReader bsonReader = new(rawMessageStream);
+                        JsonSerializer serializer = new()
                         {
-                            bsonReader.Read();
+                            Converters = { new PeerIdConverter() }
+                        };
 
-                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
-                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+                        var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
+                                throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
-                            _initialMessageSource.TrySetResult(message);
-                            OnMessageRecieved(new MessageReceivedEventArgs(message));
-                        }
-                        catch (JsonException) { await Task.Delay(75, cancellationToken); }
+                        _initialMessageSource.TrySetResult(message);
+                        OnMessageRecieved(new MessageReceivedEventArgs(message));
                     }
                 }
                 catch (OperationCanceledException)
@@ -244,18 +238,24 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            using BsonDataWriter bsonWriter = new(quicheStream)
+            byte[] rawMessageBytes;
+            using (MemoryStream rawMessageStream = new())
+            using (BsonDataWriter bsonWriter = new(rawMessageStream))
             {
-                CloseOutput = false,
-                AutoCompleteOnClose = true,
-            };
+                JsonSerializer serializer = new()
+                {
+                    Converters = { new PeerIdConverter() }
+                };
+                serializer.Serialize(bsonWriter, message);
+                rawMessageBytes = rawMessageStream.ToArray();
+            }
 
-            var serializer = new JsonSerializer()
+            using (BinaryWriter binaryWriter = new(quicheStream, Encoding.UTF8, leaveOpen: true))
             {
-                Converters = { new PeerIdConverter() }
-            };
-
-            serializer.Serialize(bsonWriter, message);
+                binaryWriter.Write(rawMessageBytes.Length);
+                binaryWriter.Write(rawMessageBytes);
+                binaryWriter.Write((byte)0);
+            }
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
