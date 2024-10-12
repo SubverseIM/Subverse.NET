@@ -54,8 +54,7 @@ namespace Subverse.Server
         {
             return Task.Run(async Task? () =>
             {
-                using var bufferedStream = new BufferedStream(quicheStream);
-                using var bsonReader = new BsonDataReader(bufferedStream)
+                using var bsonReader = new BsonDataReader(quicheStream)
                 {
                     CloseInput = false,
                     SupportMultipleContent = true,
