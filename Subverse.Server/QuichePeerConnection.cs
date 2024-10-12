@@ -66,8 +66,6 @@ namespace Subverse.Server
                             if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
                             string? jsonMessage = await streamReader.ReadLineAsync();
-                            streamReader.Read();
-
                             if (jsonMessage is not null)
                             {
                                 var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage, new PeerIdConverter()) ??
@@ -76,7 +74,7 @@ namespace Subverse.Server
                                 _initialMessageSource.TrySetResult(message);
                                 OnMessageRecieved(new MessageReceivedEventArgs(message));
                             }
-                            else { await Task.Delay(75, cancellationToken); }
+                            else { streamReader.Read(); await Task.Delay(75, cancellationToken); }
                         }
                     }
                 }
