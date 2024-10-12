@@ -54,7 +54,8 @@ namespace Subverse.Server
         {
             return Task.Run(async Task? () =>
             {
-                using var bsonReader = new BsonDataReader(quicheStream)
+                using var bufferedStream = new BufferedStream(quicheStream);
+                using var bsonReader = new BsonDataReader(bufferedStream)
                 {
                     CloseInput = false,
                     SupportMultipleContent = true,
@@ -66,12 +67,14 @@ namespace Subverse.Server
                     Converters = { new PeerIdConverter() },
                 };
 
-                if (!quicheStream.CanRead) throw new NotSupportedException();
-
                 try
                 {
-                    while (!cancellationToken.IsCancellationRequested && quicheStream.CanRead)
+                    while (!cancellationToken.IsCancellationRequested)
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (!quicheStream.CanRead) throw new NotSupportedException();
+
                         try
                         {
                             bsonReader.Read();
@@ -83,8 +86,6 @@ namespace Subverse.Server
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
                         }
                         catch (JsonException) { await Task.Delay(75); }
-
-                        cancellationToken.ThrowIfCancellationRequested();
                     }
                 }
                 catch (OperationCanceledException)
@@ -92,7 +93,7 @@ namespace Subverse.Server
                     _initialMessageSource.TrySetCanceled(cancellationToken);
                     throw;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex)
                 {
                     _initialMessageSource.TrySetException(ex);
                     _logger.LogError(ex, null);
