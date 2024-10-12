@@ -64,21 +64,25 @@ namespace Subverse.Server
 
                         if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                        int rawMessageCount = binaryReader.ReadInt32();
-                        byte[] rawMessageBytes = binaryReader.ReadBytes(++rawMessageCount);
-                        using MemoryStream rawMessageStream = new(rawMessageBytes);
-
-                        using BsonDataReader bsonReader = new(rawMessageStream);
-                        JsonSerializer serializer = new()
+                        try
                         {
-                            Converters = { new PeerIdConverter() }
-                        };
+                            int rawMessageCount = binaryReader.ReadInt32();
+                            byte[] rawMessageBytes = binaryReader.ReadBytes(++rawMessageCount);
+                            using MemoryStream rawMessageStream = new(rawMessageBytes);
 
-                        var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
-                                throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+                            using BsonDataReader bsonReader = new(rawMessageStream);
+                            JsonSerializer serializer = new()
+                            {
+                                Converters = { new PeerIdConverter() }
+                            };
 
-                        _initialMessageSource.TrySetResult(message);
-                        OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
+                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+
+                            _initialMessageSource.TrySetResult(message);
+                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                        }
+                        catch (EndOfStreamException) { await Task.Delay(75, cancellationToken); }
                     }
                 }
                 catch (OperationCanceledException)
