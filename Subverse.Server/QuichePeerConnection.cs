@@ -66,7 +66,7 @@ namespace Subverse.Server
                             if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
                             string? jsonMessage = await streamReader.ReadToEndAsync(cancellationToken);
-                            if (jsonMessage is not null)
+                            if (!string.IsNullOrEmpty(jsonMessage))
                             {
                                 var message = JsonConvert.DeserializeObject<SubverseMessage>(jsonMessage[..^2], new PeerIdConverter()) ??
                                         throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
