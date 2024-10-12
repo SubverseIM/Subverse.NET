@@ -57,15 +57,14 @@ namespace Subverse.Server
             {
                 try
                 {
+                    using StreamReader streamReader = new (quicheStream, Encoding.UTF8, leaveOpen: true);
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
                         if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
 
-                        using StreamReader streamReader = new (quicheStream, Encoding.UTF8, leaveOpen: true);
-                        string? jsonMessage = await streamReader.ReadLineAsync(cancellationToken);
-
+                        string? jsonMessage = (await streamReader.ReadLineAsync(cancellationToken))?.TrimStart('\uFEFF');
                         if (jsonMessage is not null)
                         {
                             _logger.LogDebug($"Got JSON:\n{jsonMessage}");
