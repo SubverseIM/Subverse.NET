@@ -243,23 +243,26 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            byte[] rawMessageBytes;
-            using (MemoryStream rawMessageStream = new())
-            using (BsonDataWriter bsonWriter = new(rawMessageStream))
+            lock (quicheStream)
             {
-                JsonSerializer serializer = new()
+                byte[] rawMessageBytes;
+                using (MemoryStream rawMessageStream = new())
+                using (BsonDataWriter bsonWriter = new(rawMessageStream))
                 {
-                    Converters = { new PeerIdConverter() }
-                };
-                serializer.Serialize(bsonWriter, message);
-                rawMessageBytes = rawMessageStream.ToArray();
-            }
+                    JsonSerializer serializer = new()
+                    {
+                        Converters = { new PeerIdConverter() }
+                    };
+                    serializer.Serialize(bsonWriter, message);
+                    rawMessageBytes = rawMessageStream.ToArray();
+                }
 
-            using (BinaryWriter binaryWriter = new(quicheStream, Encoding.UTF8, leaveOpen: true))
-            {
-                binaryWriter.Write(rawMessageBytes.Length);
-                binaryWriter.Write(rawMessageBytes);
-                binaryWriter.Write((byte)0);
+                using (BinaryWriter binaryWriter = new(quicheStream, Encoding.UTF8, leaveOpen: true))
+                {
+                    binaryWriter.Write(rawMessageBytes.Length);
+                    binaryWriter.Write(rawMessageBytes);
+                    binaryWriter.Write((byte)0);
+                }
             }
         }
 
