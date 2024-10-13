@@ -121,6 +121,7 @@ namespace Subverse.Server
                         }
 
                         DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
+                        rawMessageBytes = null;
                     }
                 }
                 catch (OperationCanceledException)
@@ -147,7 +148,7 @@ namespace Subverse.Server
 
                     if (rawMessageBytes is not null)
                     {
-                        ArrayPool<byte>.Shared.Return(rawMessageBytes);
+                        DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
                     }
                 }
             }, cancellationToken);
