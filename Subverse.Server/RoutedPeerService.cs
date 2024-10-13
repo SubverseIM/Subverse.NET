@@ -329,10 +329,12 @@ namespace Subverse.Server
         {
             if (message.TimeToLive <= 0) return;
 
+            bool gossipFlag = false;
             HashSet<IPeerConnection>? connections;
             if (!_connectionMap.TryGetValue(message.Recipient,
                 out connections) || connections.Count == 0)
             {
+                gossipFlag = true;
                 connections = _connectionMap.Values
                     .FlattenWithLock<
                         HashSet<IPeerConnection>,
@@ -350,12 +352,19 @@ namespace Subverse.Server
                 { TimeToLive = message.TimeToLive - 1 };
 
                 allTasks = connections.Select(connection =>
-                    Task.Run(() =>
+                    Task.Run(async Task? () =>
                     {
                         try
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            connection.SendMessage(nextHopMessage);
+                            if (gossipFlag)
+                            {
+                                await OpenConnectionAsync(connection, message, cancellationToken);
+                            }
+                            else
+                            {
+                                connection.SendMessage(nextHopMessage);
+                            }
                         }
                         catch (QuicheException ex)
                         { _logger.LogError(ex, null); }
