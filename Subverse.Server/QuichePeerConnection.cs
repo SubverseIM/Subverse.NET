@@ -5,15 +5,26 @@ using Subverse.Abstractions;
 using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Types;
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Subverse.Server
 {
     public class QuichePeerConnection : IPeerConnection
     {
-        public static int DEFAULT_CONFIG_START_TTL = 99;
+        private static readonly ArrayPool<byte> DEFAULT_ARRAY_POOL;
 
-        private readonly ILogger _logger;
+        public static int DEFAULT_CONFIG_START_TTL;
+
+        static QuichePeerConnection() 
+        {
+            DEFAULT_ARRAY_POOL = ArrayPool<byte>.Create();
+            DEFAULT_CONFIG_START_TTL = 99;
+        }
+
+        private readonly ILogger<QuichePeerConnection> _logger;
 
         private readonly QuicheConnection _connection;
 
@@ -27,7 +38,7 @@ namespace Subverse.Server
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
 
-        public QuichePeerConnection(ILogger logger, QuicheConnection connection)
+        public QuichePeerConnection(ILogger<QuichePeerConnection> logger, QuicheConnection connection)
         {
             _logger = logger;
             _connection = connection;
@@ -52,44 +63,93 @@ namespace Subverse.Server
 
         private Task RecieveAsync(QuicheStream quicheStream, CancellationToken cancellationToken)
         {
-            return Task.Run(() =>
+            return Task.Run(async Task? () =>
             {
-                using var bsonReader = new BsonDataReader(quicheStream)
-                {
-                    CloseInput = false,
-                    SupportMultipleContent = true,
-                };
-
-                var serializer = new JsonSerializer()
-                {
-                    TypeNameHandling = TypeNameHandling.Objects,
-                    Converters = { new PeerIdConverter() },
-                };
-
-                if (!quicheStream.CanRead) throw new NotSupportedException();
-
+                byte[]? rawMessageBytes = null;
+                byte[] rawMessageCountBytes = new byte[sizeof(int)];
                 try
                 {
-                    while (!cancellationToken.IsCancellationRequested &&
-                        quicheStream.CanRead && bsonReader.Read())
+                    while (!cancellationToken.IsCancellationRequested)
                     {
-                        var message = serializer.Deserialize<SubverseMessage>(bsonReader)
-                            ?? throw new InvalidOperationException(
-                                "Expected to recieve SubverseMessage, " +
-                                "got malformed data instead!");
-
-                        _initialMessageSource.TrySetResult(message);
-                        OnMessageRecieved(new MessageReceivedEventArgs(message));
-
                         cancellationToken.ThrowIfCancellationRequested();
-                    }
 
-                    _logger.LogInformation("Stopped receiving from an entity.");
+                        int rawMessageCount;
+                        for (int readCount = 0; readCount < sizeof(int);)
+                        {
+                            int justRead = quicheStream.Read(rawMessageCountBytes.AsSpan(readCount));
+                            readCount += justRead;
+                            if (justRead == 0 && quicheStream.CanRead)
+                            {
+                                await Task.Delay(150, cancellationToken);
+                            }
+                            else if (!quicheStream.CanRead)
+                            {
+                                throw new EndOfStreamException("Network stream has reached end of input and is closed.");
+                            }
+                        }
+
+                        rawMessageCount = BitConverter.ToInt32(rawMessageCountBytes);
+                        rawMessageBytes = DEFAULT_ARRAY_POOL.Rent(++rawMessageCount);
+
+                        for (int readCount = 0; readCount < rawMessageCount;)
+                        {
+                            int justRead = quicheStream.Read(rawMessageBytes.AsSpan(readCount, rawMessageCount - readCount));
+                            readCount += justRead;
+                            if (justRead == 0 && quicheStream.CanRead)
+                            {
+                                await Task.Delay(150, cancellationToken);
+                            }
+                            else if (!quicheStream.CanRead)
+                            {
+                                throw new EndOfStreamException("Network stream has reached end of input and is closed.");
+                            }
+                        }
+
+                        using (MemoryStream rawMessageStream = new(rawMessageBytes))
+                        using (BsonDataReader bsonReader = new(rawMessageStream))
+                        {
+                            JsonSerializer serializer = new()
+                            {
+                                Converters = { new PeerIdConverter() },
+                            };
+
+                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
+                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+
+                            _initialMessageSource.TrySetResult(message);
+                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                        }
+
+                        DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
+                        rawMessageBytes = null;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    _initialMessageSource.TrySetCanceled(cancellationToken);
+                    throw;
                 }
                 catch (Exception ex)
                 {
+                    _initialMessageSource.TrySetException(ex);
                     _logger.LogError(ex, null);
                     throw;
+                }
+                finally
+                {
+                    if (_initialMessageSource.Task.IsCompletedSuccessfully)
+                    {
+                        _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result.Recipient}.");
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"Stopped receiving from undesignated proxy.");
+                    }
+
+                    if (rawMessageBytes is not null)
+                    {
+                        DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
+                    }
                 }
             }, cancellationToken);
 
@@ -226,18 +286,26 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
-            using var bsonWriter = new BsonDataWriter(quicheStream)
+            byte[] rawMessageBytes;
+            using (MemoryStream rawMessageStream = new())
+            using (BsonDataWriter bsonWriter = new(rawMessageStream))
             {
-                CloseOutput = false,
-                AutoCompleteOnClose = true,
-            };
+                JsonSerializer serializer = new()
+                {
+                    Converters = { new PeerIdConverter() },
+                };
+                serializer.Serialize(bsonWriter, message);
+                rawMessageBytes = rawMessageStream.ToArray();
+            }
 
-            var serializer = new JsonSerializer()
+            lock (quicheStream)
             {
-                TypeNameHandling = TypeNameHandling.Auto,
-                Converters = { new PeerIdConverter() },
-            };
-            serializer.Serialize(bsonWriter, message);
+                using BinaryWriter binaryWriter = 
+                    new(quicheStream, Encoding.UTF8, leaveOpen: true);
+                binaryWriter.Write(rawMessageBytes.Length);
+                binaryWriter.Write(rawMessageBytes);
+                binaryWriter.Write((byte)0);
+            }
         }
 
         public bool HasValidConnectionTo(SubversePeerId peerId)
