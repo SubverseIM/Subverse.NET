@@ -80,7 +80,7 @@ namespace Subverse.Server
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
-                                await Task.Delay(75, cancellationToken);
+                                await Task.Delay(150, cancellationToken);
                             }
                             else if (!quicheStream.CanRead)
                             {
@@ -97,7 +97,7 @@ namespace Subverse.Server
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
-                                await Task.Delay(75, cancellationToken);
+                                await Task.Delay(150, cancellationToken);
                             }
                             else if (!quicheStream.CanRead)
                             {
