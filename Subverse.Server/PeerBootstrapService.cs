@@ -123,9 +123,8 @@ internal class PeerBootstrapService : BackgroundService
 
                     if (remoteEndPoint is null ||
                             _connectionMap.TryGetValue(hostname, out IPeerConnection? currentPeerConnection) &&
-                            (!currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
-                            _connectionMap.TryRemove(hostname, out IPeerConnection? _) ||
-                            currentPeerConnection.HasValidConnectionTo(_peerService.PeerId)))
+                            !currentPeerConnection.HasValidConnectionTo(_peerService.PeerId) &&
+                            _connectionMap.TryRemove(hostname, out IPeerConnection? _))
                     {
                         continue;
                     }
