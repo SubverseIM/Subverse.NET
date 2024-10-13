@@ -1,19 +1,28 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Bson;
-using Org.BouncyCastle.Crypto.Paddings;
 using Quiche.NET;
 using Subverse.Abstractions;
 using Subverse.Implementations;
 using Subverse.Models;
 using Subverse.Types;
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Subverse.Server
 {
     public class QuichePeerConnection : IPeerConnection
     {
-        public static int DEFAULT_CONFIG_START_TTL = 99;
+        private static readonly ArrayPool<byte> DEFAULT_ARRAY_POOL;
+
+        public static int DEFAULT_CONFIG_START_TTL;
+
+        static QuichePeerConnection() 
+        {
+            DEFAULT_ARRAY_POOL = ArrayPool<byte>.Create();
+            DEFAULT_CONFIG_START_TTL = 99;
+        }
 
         private readonly ILogger<QuichePeerConnection> _logger;
 
@@ -56,49 +65,62 @@ namespace Subverse.Server
         {
             return Task.Run(async Task? () =>
             {
+                byte[]? rawMessageBytes = null;
+
+                Span<byte> rawMessageCountBytes = stackalloc byte[sizeof(int)];
+                ref int rawMessageCount = ref MemoryMarshal.AsRef<int>(rawMessageCountBytes);
+
                 try
                 {
-                    byte[] rawMessageCountBytes = new byte[sizeof(int)];
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        if (!quicheStream.CanRead) throw new NotSupportedException("Stream cannot be read from at this time.");
-
-                        for (int i = 0; i < rawMessageCountBytes.Length;)
+                        for (int readCount = 0; readCount < sizeof(int);)
                         {
-                            int value = quicheStream.ReadByte();
-                            if (value >= 0)
+                            int justRead = quicheStream.Read(rawMessageCountBytes.Slice(readCount));
+                            readCount += justRead;
+                            if (justRead == 0 && quicheStream.CanRead)
                             {
-                                rawMessageCountBytes[i++] = (byte)value;
+                                await Task.Delay(75, cancellationToken);
                             }
-                            else { await Task.Delay(75); }
+                            else if (!quicheStream.CanRead)
+                            {
+                                throw new EndOfStreamException("Network stream has reached end of input and is closed.");
+                            }
                         }
-                        int rawMessageCount = BitConverter.ToInt32(rawMessageCountBytes);
 
-                        byte[] rawMessageBytes = new byte[++rawMessageCount];
+                        rawMessageBytes = DEFAULT_ARRAY_POOL.Rent(++rawMessageCount);
                         for (int readCount = 0; readCount < rawMessageCount;)
                         {
-                            int justRead = quicheStream.Read(rawMessageBytes.AsSpan(readCount));
-                            if (justRead > 0)
+                            int justRead = quicheStream.Read(rawMessageBytes.AsSpan(readCount, rawMessageCount - readCount));
+                            readCount += justRead;
+                            if (justRead == 0 && quicheStream.CanRead)
                             {
-                                readCount += justRead;
+                                await Task.Delay(75, cancellationToken);
                             }
-                            else { await Task.Delay(75); }
+                            else if (!quicheStream.CanRead)
+                            {
+                                throw new EndOfStreamException("Network stream has reached end of input and is closed.");
+                            }
                         }
 
-                        using MemoryStream rawMessageStream = new(rawMessageBytes);
-                        using BsonDataReader bsonReader = new(rawMessageStream);
-                        JsonSerializer serializer = new()
+                        using (MemoryStream rawMessageStream = new(rawMessageBytes))
+                        using (BsonDataReader bsonReader = new(rawMessageStream))
                         {
-                            Converters = { new PeerIdConverter() }
-                        };
+                            JsonSerializer serializer = new()
+                            {
+                                Converters = { new PeerIdConverter() },
+                            };
 
-                        var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
-                                throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
+                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
 
-                        _initialMessageSource.TrySetResult(message);
-                        OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            _initialMessageSource.TrySetResult(message);
+                            OnMessageRecieved(new MessageReceivedEventArgs(message));
+                        }
+
+                        DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
                     }
                 }
                 catch (OperationCanceledException)
@@ -121,6 +143,11 @@ namespace Subverse.Server
                     else
                     {
                         _logger.LogInformation($"Stopped receiving from undesignated proxy.");
+                    }
+
+                    if (rawMessageBytes is not null)
+                    {
+                        ArrayPool<byte>.Shared.Return(rawMessageBytes);
                     }
                 }
             }, cancellationToken);
@@ -258,26 +285,25 @@ namespace Subverse.Server
                 throw new NotSupportedException("Stream cannot be written to at this time.");
             }
 
+            byte[] rawMessageBytes;
+            using (MemoryStream rawMessageStream = new())
+            using (BsonDataWriter bsonWriter = new(rawMessageStream))
+            {
+                JsonSerializer serializer = new()
+                {
+                    Converters = { new PeerIdConverter() },
+                };
+                serializer.Serialize(bsonWriter, message);
+                rawMessageBytes = rawMessageStream.ToArray();
+            }
+
             lock (quicheStream)
             {
-                byte[] rawMessageBytes;
-                using (MemoryStream rawMessageStream = new())
-                using (BsonDataWriter bsonWriter = new(rawMessageStream))
-                {
-                    JsonSerializer serializer = new()
-                    {
-                        Converters = { new PeerIdConverter() }
-                    };
-                    serializer.Serialize(bsonWriter, message);
-                    rawMessageBytes = rawMessageStream.ToArray();
-                }
-
-                using (BinaryWriter binaryWriter = new(quicheStream, Encoding.UTF8, leaveOpen: true))
-                {
-                    binaryWriter.Write(rawMessageBytes.Length);
-                    binaryWriter.Write(rawMessageBytes);
-                    binaryWriter.Write((byte)0);
-                }
+                using BinaryWriter binaryWriter = 
+                    new(quicheStream, Encoding.UTF8, leaveOpen: true);
+                binaryWriter.Write(rawMessageBytes.Length);
+                binaryWriter.Write(rawMessageBytes);
+                binaryWriter.Write((byte)0);
             }
         }
 
