@@ -88,7 +88,7 @@ namespace Subverse.Server
                             }
                         }
 
-                        rawMessageCount = BitConverter.ToInt32(rawMessageBytes);
+                        rawMessageCount = BitConverter.ToInt32(rawMessageCountBytes);
                         rawMessageBytes = DEFAULT_ARRAY_POOL.Rent(++rawMessageCount);
 
                         for (int readCount = 0; readCount < rawMessageCount;)
