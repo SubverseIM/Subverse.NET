@@ -67,7 +67,7 @@ namespace Subverse.Server
             {
                 byte[]? rawMessageBytes = null;
 
-                Span<byte> rawMessageCountBytes = stackalloc byte[sizeof(int)];
+                byte[] rawMessageCountBytes = new byte[sizeof(int)];
                 ref int rawMessageCount = ref MemoryMarshal.AsRef<int>(rawMessageCountBytes);
 
                 try
@@ -78,7 +78,7 @@ namespace Subverse.Server
 
                         for (int readCount = 0; readCount < sizeof(int);)
                         {
-                            int justRead = quicheStream.Read(rawMessageCountBytes.Slice(readCount));
+                            int justRead = quicheStream.Read(rawMessageCountBytes.AsSpan(readCount));
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
