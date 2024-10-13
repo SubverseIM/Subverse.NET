@@ -66,16 +66,14 @@ namespace Subverse.Server
             return Task.Run(async Task? () =>
             {
                 byte[]? rawMessageBytes = null;
-
                 byte[] rawMessageCountBytes = new byte[sizeof(int)];
-                ref int rawMessageCount = ref MemoryMarshal.AsRef<int>(rawMessageCountBytes);
-
                 try
                 {
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
+                        int rawMessageCount;
                         for (int readCount = 0; readCount < sizeof(int);)
                         {
                             int justRead = quicheStream.Read(rawMessageCountBytes.AsSpan(readCount));
@@ -90,7 +88,9 @@ namespace Subverse.Server
                             }
                         }
 
+                        rawMessageCount = BitConverter.ToInt32(rawMessageBytes);
                         rawMessageBytes = DEFAULT_ARRAY_POOL.Rent(++rawMessageCount);
+
                         for (int readCount = 0; readCount < rawMessageCount;)
                         {
                             int justRead = quicheStream.Read(rawMessageBytes.AsSpan(readCount, rawMessageCount - readCount));
