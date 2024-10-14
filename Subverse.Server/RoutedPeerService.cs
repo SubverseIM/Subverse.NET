@@ -330,8 +330,8 @@ namespace Subverse.Server
             if (message.TimeToLive <= 0) return;
 
             HashSet<IPeerConnection>? connections;
-            if (!_connectionMap.TryGetValue(message.Recipient,
-                out connections) || connections.Count == 0)
+            if (!_connectionMap.TryGetValue(message.Recipient, out connections) || 
+                !connections.Any(x => x.HasValidConnectionTo(message.Recipient)))
             {
                 connections = _connectionMap.Values
                     .FlattenWithLock<
@@ -350,12 +350,20 @@ namespace Subverse.Server
                 { TimeToLive = message.TimeToLive - 1 };
 
                 allTasks = connections.Select(connection =>
-                    Task.Run(() =>
+                    Task.Run(async Task? () =>
                     {
                         try
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            connection.SendMessage(nextHopMessage);
+
+                            if (connection.HasValidConnectionTo(message.Recipient))
+                            {
+                                connection.SendMessage(message);
+                            }
+                            else
+                            {
+                                await OpenConnectionAsync(connection, message, cancellationToken);
+                            }
                         }
                         catch (QuicheException ex)
                         { _logger.LogError(ex, null); }

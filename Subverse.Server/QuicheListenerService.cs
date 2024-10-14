@@ -60,7 +60,7 @@ namespace Subverse.Server
         {
             var initialData = new byte[QuicheLibrary.MAX_DATAGRAM_LEN];
 
-            var serverConfig = new QuicheConfig()
+            using var serverConfig = new QuicheConfig()
             {
                 MaxInitialDataSize = QuicheLibrary.MAX_BUFFER_LEN,
 
