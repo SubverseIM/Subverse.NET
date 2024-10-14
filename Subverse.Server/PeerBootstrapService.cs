@@ -134,7 +134,7 @@ internal class PeerBootstrapService : BackgroundService
                     {
                         using var cts = new CancellationTokenSource(DEFAULT_BOOTSTRAP_PEER_TIMEOUT);
 
-                        var clientConfig = new QuicheConfig()
+                        using var clientConfig = new QuicheConfig()
                         {
                             MaxInitialDataSize = QuicheLibrary.MAX_BUFFER_LEN,
 
