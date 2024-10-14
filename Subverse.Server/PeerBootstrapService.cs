@@ -142,7 +142,7 @@ internal class PeerBootstrapService : BackgroundService
                             MaxInitialLocalBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
                             MaxInitialRemoteBidiStreamDataSize = QuicheLibrary.MAX_BUFFER_LEN,
 
-                            MaxIdleTimeout = 60_000,
+                            MaxIdleTimeout = 15_000,
                         };
 
                         clientConfig.SetApplicationProtocols("SubverseV2");
