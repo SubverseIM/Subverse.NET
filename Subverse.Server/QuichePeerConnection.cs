@@ -19,7 +19,7 @@ namespace Subverse.Server
 
         public static int DEFAULT_CONFIG_START_TTL;
 
-        static QuichePeerConnection() 
+        static QuichePeerConnection()
         {
             DEFAULT_ARRAY_POOL = ArrayPool<byte>.Create();
             DEFAULT_CONFIG_START_TTL = 99;
@@ -81,13 +81,10 @@ namespace Subverse.Server
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
-                                if (_initialMessageSource.Task.IsCompleted)
-                                {
-                                    SendMessage(new SubverseMessage(
-                                        null, 0, ProtocolCode.Command,
-                                        Encoding.UTF8.GetBytes("PING")
-                                        ), quicheStream);
-                                }
+                                SendMessage(new SubverseMessage(
+                                    null, 0, ProtocolCode.Command,
+                                    Encoding.UTF8.GetBytes("PING")
+                                    ), quicheStream);
                                 await Task.Delay(150, cancellationToken);
                             }
                             else if (!quicheStream.CanRead)
@@ -123,8 +120,10 @@ namespace Subverse.Server
 
                             var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
                                     throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
-
-                            _initialMessageSource.TrySetResult(message);
+                            if (message.Recipient is not null)
+                            {
+                                _initialMessageSource.TrySetResult(message);
+                            }
                             OnMessageRecieved(new MessageReceivedEventArgs(message));
                         }
 
@@ -312,7 +311,7 @@ namespace Subverse.Server
 
             lock (quicheStream)
             {
-                using BinaryWriter binaryWriter = 
+                using BinaryWriter binaryWriter =
                     new(quicheStream, Encoding.UTF8, leaveOpen: true);
                 binaryWriter.Write(rawMessageBytes.Length);
                 binaryWriter.Write(rawMessageBytes);
