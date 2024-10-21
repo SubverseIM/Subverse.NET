@@ -81,10 +81,13 @@ namespace Subverse.Server
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
-                                SendMessage(new SubverseMessage(
-                                    null, 0, ProtocolCode.Command,
-                                    Encoding.UTF8.GetBytes("PING")
-                                    ), quicheStream);
+                                if (_initialMessageSource.Task.IsCompleted)
+                                {
+                                    SendMessage(new SubverseMessage(
+                                        null, 0, ProtocolCode.Command,
+                                        Encoding.UTF8.GetBytes("PING")
+                                        ), quicheStream);
+                                }
                                 await Task.Delay(150, cancellationToken);
                             }
                             else if (!quicheStream.CanRead)
@@ -102,10 +105,6 @@ namespace Subverse.Server
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
-                                SendMessage(new SubverseMessage(
-                                    null, 0, ProtocolCode.Command,
-                                    Encoding.UTF8.GetBytes("PING")
-                                    ), quicheStream);
                                 await Task.Delay(150, cancellationToken);
                             }
                             else if (!quicheStream.CanRead)
