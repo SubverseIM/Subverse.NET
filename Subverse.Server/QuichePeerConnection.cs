@@ -7,8 +7,9 @@ using Subverse.Models;
 using Subverse.Types;
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
 using System.Text;
+
+using static Subverse.Models.SubverseMessage;
 
 namespace Subverse.Server
 {
@@ -51,10 +52,10 @@ namespace Subverse.Server
             _initialMessageSource = new();
         }
 
-        private QuicheStream? GetBestPeerStream(SubversePeerId peerId)
+        private QuicheStream? GetBestPeerStream(SubversePeerId? peerId)
         {
             QuicheStream? quicheStream;
-            if (!_streamMap.TryGetValue(peerId, out quicheStream))
+            if (peerId is null || !_streamMap.TryGetValue(peerId.Value, out quicheStream))
             {
                 quicheStream = _streamMap.Values.SingleOrDefault();
             }
@@ -80,6 +81,10 @@ namespace Subverse.Server
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
+                                SendMessage(new SubverseMessage(
+                                    null, 0, ProtocolCode.Command,
+                                    Encoding.UTF8.GetBytes("PING")
+                                    ), quicheStream);
                                 await Task.Delay(150, cancellationToken);
                             }
                             else if (!quicheStream.CanRead)
@@ -97,6 +102,10 @@ namespace Subverse.Server
                             readCount += justRead;
                             if (justRead == 0 && quicheStream.CanRead)
                             {
+                                SendMessage(new SubverseMessage(
+                                    null, 0, ProtocolCode.Command,
+                                    Encoding.UTF8.GetBytes("PING")
+                                    ), quicheStream);
                                 await Task.Delay(150, cancellationToken);
                             }
                             else if (!quicheStream.CanRead)
@@ -213,7 +222,7 @@ namespace Subverse.Server
 
             await _connection.ConnectionEstablished.WaitAsync(cancellationToken);
 
-            if (message is not null)
+            if (message?.Recipient is not null)
             {
                 quicheStream = await _connection.CreateOutboundStreamAsync(QuicheStream.Direction.Bidirectional, cancellationToken);
 
@@ -222,7 +231,7 @@ namespace Subverse.Server
                 newCts = new();
                 newTask = RecieveAsync(quicheStream, newCts.Token);
 
-                recipient = message.Recipient;
+                recipient = message.Recipient.Value;
             }
             else
             {
@@ -232,7 +241,11 @@ namespace Subverse.Server
                 newTask = RecieveAsync(quicheStream, newCts.Token);
 
                 SubverseMessage initialMessage = await _initialMessageSource.Task.WaitAsync(cancellationToken);
-                recipient = initialMessage.Recipient;
+                if (initialMessage.Recipient is null)
+                {
+                    throw new InvalidOperationException("Invalid initial message was received!");
+                }
+                recipient = initialMessage.Recipient.Value;
             }
 
             _ = _ctsMap.AddOrUpdate(recipient, newCts,
@@ -308,7 +321,7 @@ namespace Subverse.Server
             }
         }
 
-        public bool HasValidConnectionTo(SubversePeerId peerId)
+        public bool HasValidConnectionTo(SubversePeerId? peerId)
         {
             QuicheStream? quicheStream = GetBestPeerStream(peerId);
             return quicheStream?.CanRead & quicheStream?.CanWrite ?? false;

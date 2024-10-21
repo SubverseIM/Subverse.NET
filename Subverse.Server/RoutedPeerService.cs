@@ -158,7 +158,7 @@ namespace Subverse.Server
         private async void Connection_MessageReceived(object? sender, MessageReceivedEventArgs e)
         {
             var connection = sender as IPeerConnection;
-            if (!e.Message.Recipient.Equals(PeerId))
+            if (e.Message.Recipient is not null && !e.Message.Recipient.Equals(PeerId))
             {
                 await RouteMessageAsync(e.Message);
             }
@@ -327,10 +327,10 @@ namespace Subverse.Server
 
         private async Task RouteMessageAsync(SubverseMessage message)
         {
-            if (message.TimeToLive <= 0) return;
+            if (message.TimeToLive <= 0 || message.Recipient is null) return;
 
             HashSet<IPeerConnection>? connections;
-            if (!_connectionMap.TryGetValue(message.Recipient, out connections) || 
+            if (!_connectionMap.TryGetValue(message.Recipient.Value, out connections) || 
                 !connections.Any(x => x.HasValidConnectionTo(message.Recipient)))
             {
                 connections = _connectionMap.Values

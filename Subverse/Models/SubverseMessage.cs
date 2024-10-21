@@ -2,7 +2,7 @@
 
 namespace Subverse.Models
 {
-    public record SubverseMessage(SubversePeerId Recipient, int TimeToLive, SubverseMessage.ProtocolCode Code, byte[] Content)
+    public record SubverseMessage(SubversePeerId? Recipient, int TimeToLive, SubverseMessage.ProtocolCode Code, byte[] Content)
     {
         public enum ProtocolCode : short 
         {

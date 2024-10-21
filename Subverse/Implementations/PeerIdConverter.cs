@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace Subverse.Implementations
 {
-    public class PeerIdConverter : JsonConverter<SubversePeerId>
+    public class PeerIdConverter : JsonConverter<SubversePeerId?>
     {
         private static byte[] StringToByteArray(string hex)
         {
@@ -14,14 +14,15 @@ namespace Subverse.Implementations
                              .ToArray();
         }
 
-        public override SubversePeerId ReadJson(JsonReader reader, Type objectType, SubversePeerId existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override SubversePeerId? ReadJson(JsonReader reader, Type objectType, SubversePeerId? existingValue, bool hasExistingValue, JsonSerializer serializer)
         {
-            return new SubversePeerId(StringToByteArray((string?)reader.Value ?? string.Empty));
+            string? tokenOrNull = (string?)reader.Value;
+            return tokenOrNull is null ? null : new SubversePeerId(StringToByteArray(tokenOrNull));
         }
 
-        public override void WriteJson(JsonWriter writer, SubversePeerId value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, SubversePeerId? value, JsonSerializer serializer)
         {
-            writer.WriteValue(value.ToString());
+            writer.WriteValue(value?.ToString());
         }
     }
 }
