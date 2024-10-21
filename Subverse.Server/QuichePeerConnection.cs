@@ -162,7 +162,7 @@ namespace Subverse.Server
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        await Task.Delay(500);
+                        await Task.Delay(5000);
 
                         SendMessage(new SubverseMessage(
                             null, 0, ProtocolCode.Command,
