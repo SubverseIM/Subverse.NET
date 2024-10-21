@@ -64,101 +64,112 @@ namespace Subverse.Server
 
         private Task RecieveAsync(QuicheStream quicheStream, CancellationToken cancellationToken)
         {
-            return Task.Run(async Task? () =>
-            {
-                byte[]? rawMessageBytes = null;
-                byte[] rawMessageCountBytes = new byte[sizeof(int)];
-                try
+            return Task.WhenAll(
+                Task.Run(async Task? () =>
+                {
+                    byte[]? rawMessageBytes = null;
+                    byte[] rawMessageCountBytes = new byte[sizeof(int)];
+                    try
+                    {
+                        while (!cancellationToken.IsCancellationRequested)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            int rawMessageCount;
+                            for (int readCount = 0; readCount < sizeof(int);)
+                            {
+                                int justRead = quicheStream.Read(rawMessageCountBytes.AsSpan(readCount));
+                                readCount += justRead;
+                                if (justRead == 0 && quicheStream.CanRead)
+                                {
+                                    await Task.Delay(150, cancellationToken);
+                                }
+                                else if (!quicheStream.CanRead)
+                                {
+                                    throw new EndOfStreamException("Network stream has reached end of input and is closed.");
+                                }
+                            }
+
+                            rawMessageCount = BitConverter.ToInt32(rawMessageCountBytes);
+                            rawMessageBytes = DEFAULT_ARRAY_POOL.Rent(++rawMessageCount);
+
+                            for (int readCount = 0; readCount < rawMessageCount;)
+                            {
+                                int justRead = quicheStream.Read(rawMessageBytes.AsSpan(readCount, rawMessageCount - readCount));
+                                readCount += justRead;
+                                if (justRead == 0 && quicheStream.CanRead)
+                                {
+                                    await Task.Delay(150, cancellationToken);
+                                }
+                                else if (!quicheStream.CanRead)
+                                {
+                                    throw new EndOfStreamException("Network stream has reached end of input and is closed.");
+                                }
+                            }
+
+                            using (MemoryStream rawMessageStream = new(rawMessageBytes))
+                            using (BsonDataReader bsonReader = new(rawMessageStream))
+                            {
+                                JsonSerializer serializer = new()
+                                {
+                                    Converters = { new PeerIdConverter() },
+                                };
+
+                                var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
+                                        throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
+                                if (message.Recipient is not null)
+                                {
+                                    _initialMessageSource.TrySetResult(message);
+                                }
+                                OnMessageRecieved(new MessageReceivedEventArgs(message));
+                            }
+
+                            DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
+                            rawMessageBytes = null;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _initialMessageSource.TrySetCanceled(cancellationToken);
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _initialMessageSource.TrySetException(ex);
+                        _logger.LogError(ex, null);
+                        throw;
+                    }
+                    finally
+                    {
+                        if (_initialMessageSource.Task.IsCompletedSuccessfully)
+                        {
+                            _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result.Recipient}.");
+                        }
+                        else
+                        {
+                            _logger.LogInformation($"Stopped receiving from undesignated proxy.");
+                        }
+
+                        if (rawMessageBytes is not null)
+                        {
+                            DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
+                        }
+                    }
+                }, cancellationToken), 
+                Task.Run(async Task? () => 
                 {
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        int rawMessageCount;
-                        for (int readCount = 0; readCount < sizeof(int);)
-                        {
-                            int justRead = quicheStream.Read(rawMessageCountBytes.AsSpan(readCount));
-                            readCount += justRead;
-                            if (justRead == 0 && quicheStream.CanRead)
-                            {
-                                SendMessage(new SubverseMessage(
-                                    null, 0, ProtocolCode.Command,
-                                    Encoding.UTF8.GetBytes("PING")
-                                    ), quicheStream);
-                                await Task.Delay(150, cancellationToken);
-                            }
-                            else if (!quicheStream.CanRead)
-                            {
-                                throw new EndOfStreamException("Network stream has reached end of input and is closed.");
-                            }
-                        }
+                        await Task.Delay(500);
 
-                        rawMessageCount = BitConverter.ToInt32(rawMessageCountBytes);
-                        rawMessageBytes = DEFAULT_ARRAY_POOL.Rent(++rawMessageCount);
-
-                        for (int readCount = 0; readCount < rawMessageCount;)
-                        {
-                            int justRead = quicheStream.Read(rawMessageBytes.AsSpan(readCount, rawMessageCount - readCount));
-                            readCount += justRead;
-                            if (justRead == 0 && quicheStream.CanRead)
-                            {
-                                await Task.Delay(150, cancellationToken);
-                            }
-                            else if (!quicheStream.CanRead)
-                            {
-                                throw new EndOfStreamException("Network stream has reached end of input and is closed.");
-                            }
-                        }
-
-                        using (MemoryStream rawMessageStream = new(rawMessageBytes))
-                        using (BsonDataReader bsonReader = new(rawMessageStream))
-                        {
-                            JsonSerializer serializer = new()
-                            {
-                                Converters = { new PeerIdConverter() },
-                            };
-
-                            var message = serializer.Deserialize<SubverseMessage>(bsonReader) ??
-                                    throw new InvalidOperationException("Expected SubverseMessage, got malformed data instead!");
-                            if (message.Recipient is not null)
-                            {
-                                _initialMessageSource.TrySetResult(message);
-                            }
-                            OnMessageRecieved(new MessageReceivedEventArgs(message));
-                        }
-
-                        DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
-                        rawMessageBytes = null;
+                        SendMessage(new SubverseMessage(
+                            null, 0, ProtocolCode.Command,
+                            Encoding.UTF8.GetBytes("PING")
+                            ), quicheStream);
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                    _initialMessageSource.TrySetCanceled(cancellationToken);
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _initialMessageSource.TrySetException(ex);
-                    _logger.LogError(ex, null);
-                    throw;
-                }
-                finally
-                {
-                    if (_initialMessageSource.Task.IsCompletedSuccessfully)
-                    {
-                        _logger.LogInformation($"Stopped receiving from proxy of {_initialMessageSource.Task.Result.Recipient}.");
-                    }
-                    else
-                    {
-                        _logger.LogInformation($"Stopped receiving from undesignated proxy.");
-                    }
-
-                    if (rawMessageBytes is not null)
-                    {
-                        DEFAULT_ARRAY_POOL.Return(rawMessageBytes);
-                    }
-                }
-            }, cancellationToken);
+                }, cancellationToken));
 
         }
 
