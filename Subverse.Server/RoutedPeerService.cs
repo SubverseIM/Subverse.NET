@@ -330,7 +330,7 @@ namespace Subverse.Server
             if (message.TimeToLive <= 0 || message.Recipient is null) return;
 
             HashSet<IPeerConnection>? connections;
-            if (!_connectionMap.TryGetValue(message.Recipient.Value, out connections) ||
+            if (!_connectionMap.TryGetValue(message.Recipient.Value, out connections) || 
                 !connections.Any(x => x.HasValidConnectionTo(message.Recipient)))
             {
                 connections = _connectionMap.Values
@@ -355,7 +355,15 @@ namespace Subverse.Server
                         try
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            await OpenConnectionAsync(connection, message, cancellationToken);
+
+                            if (connection.HasValidConnectionTo(message.Recipient))
+                            {
+                                connection.SendMessage(message);
+                            }
+                            else
+                            {
+                                await OpenConnectionAsync(connection, message, cancellationToken);
+                            }
                         }
                         catch (QuicheException ex)
                         { _logger.LogError(ex, null); }
