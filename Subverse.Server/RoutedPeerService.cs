@@ -103,16 +103,23 @@ namespace Subverse.Server
             SubversePeerId toEntityId = SubversePeerId.FromString(toEntityStr);
             _dhtEngine.GetPeers(new(toEntityId.GetBytes()));
 
-            TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
-                .GetOrAdd(toEntityId, k => new());
-            IList<PeerInfo> peers = await tcs.Task;
-
-            foreach (PeerInfo peer in peers)
+            if (toEntityId == PeerId)
             {
-                IPAddress ipAddress = IPAddress.Parse(peer.ConnectionUri.DnsSafeHost);
-                IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, peer.ConnectionUri.Port);
+                await _sipTransport.SendRequestAsync(new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061), sipRequest);
+            }
+            else
+            {
+                TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
+                    .GetOrAdd(toEntityId, k => new());
+                IList<PeerInfo> peers = await tcs.Task;
 
-                await _sipTransport.SendRequestAsync(new SIPEndPoint(ipEndPoint), sipRequest);
+                foreach (PeerInfo peer in peers)
+                {
+                    IPAddress ipAddress = IPAddress.Parse(peer.ConnectionUri.DnsSafeHost);
+                    IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, peer.ConnectionUri.Port);
+
+                    await _sipTransport.SendRequestAsync(new SIPEndPoint(ipEndPoint), sipRequest);
+                }
             }
         }
 
