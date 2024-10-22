@@ -1,5 +1,4 @@
 ﻿using Mono.Nat;
-using Subverse.Abstractions;
 using System.Net;
 
 namespace Subverse.Server
@@ -60,13 +59,9 @@ namespace Subverse.Server
         {
             try
             {
-                if (_peerService.LocalEndPoint is null) return;
-
-                _natDevice = e.Device;
-
-                int localPort = _peerService.LocalEndPoint.Port;
+                _natDevice = e.Device; 
                 _mapping = await _natDevice.CreatePortMapAsync(
-                    new(Protocol.Udp, localPort, 6_03_03, 0, "SubverseV2")
+                    new(Protocol.Udp, 5061, 5060, 0, "SubverseV2")
                     );
 
                 int remotePort = _mapping.PublicPort;
@@ -75,6 +70,7 @@ namespace Subverse.Server
                 if (remoteAddr != IPAddress.Any)
                 {
                     _peerService.RemoteEndPoint = new IPEndPoint(remoteAddr, remotePort);
+                    await _peerService.InitializeDhtAsync();
                 }
 
                 _logger.LogInformation($"Successfully allocated external endpoint: {_peerService.RemoteEndPoint}");

@@ -1,11 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
 	<PropertyGroup>
-		<TargetFrameworks>net8.0;net8.0-windows;net8.0-macos</TargetFrameworks>
+		<TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UserSecretsId>e4b12c90-b56a-4770-9925-732c45eddb46</UserSecretsId>
 		<LangVersion>preview</LangVersion>
+		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -19,11 +20,13 @@
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
 		<PackageReference Include="Mono.Nat" Version="3.0.4" />
+		<PackageReference Include="PgpCore" Version="6.5.1" />
 		<PackageReference Include="SIPSorcery" Version="6.2.4" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\Quiche.NET\Quiche.NET.csproj" />
-		<ProjectReference Include="..\Subverse\Subverse.csproj" />
+	  <ProjectReference Include="..\monotorrent\src\MonoTorrent.Connections\MonoTorrent.Connections.csproj" />
+	  <ProjectReference Include="..\monotorrent\src\MonoTorrent.Dht\MonoTorrent.Dht.csproj" />
+	  <ProjectReference Include="..\monotorrent\src\MonoTorrent\MonoTorrent.csproj" />
 	</ItemGroup>
 </Project>
