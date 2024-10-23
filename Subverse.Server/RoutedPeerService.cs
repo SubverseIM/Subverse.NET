@@ -152,8 +152,6 @@ namespace Subverse.Server
             SubversePeerId toEntityId = SubversePeerId.FromString(toEntityStr);
             _callerMap.TryAdd(sipRequest.Header.CallId, toEntityId);
 
-            _dhtEngine.GetPeers(new(toEntityId.GetBytes()));
-
             if (toEntityId == PeerId)
             {
                 sipRequest.Header.From.FromURI.Host = "subverse";
@@ -165,6 +163,7 @@ namespace Subverse.Server
             {
                 TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
                     .GetOrAdd(toEntityId, k => new());
+                _dhtEngine.GetPeers(new(toEntityId.GetBytes()));
                 IList<PeerInfo> peers = await tcs.Task;
 
                 foreach (PeerInfo peer in peers)
