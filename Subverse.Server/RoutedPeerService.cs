@@ -227,7 +227,7 @@ namespace Subverse.Server
                     await SynchronizePeersAsync(cancellationToken);
                     await _timer.WaitForNextTickAsync(cancellationToken);
 
-                    foreach (SubversePeerId peer in _callerMap.Values)
+                    foreach (SubversePeerId peer in _callerMap.Values.Distinct())
                     {
                         await SynchronizePeersAsync(peer, cancellationToken);
                         await _timer.WaitForNextTickAsync(cancellationToken);
