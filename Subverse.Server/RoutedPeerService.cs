@@ -9,6 +9,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Mime;
 using System.Text;
+using System.Threading;
 
 namespace Subverse.Server
 {
@@ -106,21 +107,7 @@ namespace Subverse.Server
 
             _dhtEngine.Announce(new(PeerId.GetBytes()), RemoteEndPoint?.Port ?? 0);
 
-            try
-            {
-                using (FileStream pkFileStream = _keyProvider.GetPublicKeyFile().OpenRead())
-                using (StreamContent pkFileStreamContent = new(pkFileStream)
-                { Headers = { ContentType = new("application/pgp-keys") } })
-                {
-                    HttpResponseMessage response = await _http.PostAsync("pk", pkFileStreamContent);
-                    return await response.Content.ReadFromJsonAsync<bool>();
-                }
-            }
-            catch (Exception ex) 
-            {
-                _logger.LogError(ex, null);
-                return false;
-            }
+            return await SynchronizePeersAsync();
         }
 
         private async Task<bool> SynchronizePeersAsync(CancellationToken cancellationToken = default)
@@ -145,7 +132,7 @@ namespace Subverse.Server
                     return await response.Content.ReadFromJsonAsync<bool>();
                 }
             }
-            catch (Exception ex) 
+            catch (Exception ex)
             {
                 _logger.LogError(ex, null);
                 return false;
@@ -170,7 +157,7 @@ namespace Subverse.Server
             if (toEntityId == PeerId)
             {
                 await _sipTransport.SendRequestAsync(
-                    new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061), 
+                    new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
                     sipRequest);
             }
             else
@@ -200,7 +187,7 @@ namespace Subverse.Server
                     new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
                     sipResponse);
             }
-            else if(fromEntityId != PeerId)
+            else if (fromEntityId != PeerId)
             {
                 _dhtEngine.GetPeers(new(fromEntityId.GetBytes()));
 
@@ -222,11 +209,15 @@ namespace Subverse.Server
         {
             try
             {
+                using (FileStream pkFileStream = _keyProvider.GetPublicKeyFile().OpenRead())
+                using (StreamContent pkFileStreamContent = new(pkFileStream)
+                { Headers = { ContentType = new("application/pgp-keys") } })
+                {
+                    await _http.PostAsync("pk", pkFileStreamContent);
+                }
+
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    await SynchronizePeersAsync(cancellationToken);
-                    await _timer.WaitForNextTickAsync(cancellationToken);
-
                     foreach (SubversePeerId peer in _callerMap.Values.Distinct())
                     {
                         await SynchronizePeersAsync(peer, cancellationToken);
@@ -235,7 +226,7 @@ namespace Subverse.Server
                 }
             }
             catch (OperationCanceledException) { }
-            finally 
+            finally
             {
                 await _dhtEngine.StopAsync();
                 _sipTransport.Shutdown();
