@@ -8,8 +8,8 @@ builder.Configuration.AddEnvironmentVariables("Subverse_");
 builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
 
 // Mission-critical
-builder.Services.AddHostedService<RoutedPeerService>();
-builder.Services.AddHostedService<NatTunnelService>();
+builder.Services.AddSingleton<IPeerService, RoutedPeerService>();
+builder.Services.AddHostedService<HubService>();
 
 // Windows-specific
 builder.Services.AddWindowsService(options => 

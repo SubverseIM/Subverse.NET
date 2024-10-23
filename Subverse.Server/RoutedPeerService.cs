@@ -10,7 +10,7 @@ using System.Text;
 
 namespace Subverse.Server
 {
-    internal class RoutedPeerService : BackgroundService
+    internal class RoutedPeerService : IPeerService, IDisposable
     {
         private static readonly TimeSpan DEFAULT_BOOTSTRAP_PERIOD = TimeSpan.FromSeconds(5.0);
 
@@ -30,6 +30,8 @@ namespace Subverse.Server
         private readonly IDhtListener _dhtListener;
 
         private readonly HttpClient _http;
+
+        private bool disposedValue;
 
         public IPEndPoint? LocalEndPoint { get; set; }
         public IPEndPoint? RemoteEndPoint { get; set; }
@@ -215,19 +217,19 @@ namespace Subverse.Server
             }
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        public async Task RunAsync(CancellationToken cancellationToken)
         {
             try
             {
-                while (!stoppingToken.IsCancellationRequested)
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    await SynchronizePeersAsync(stoppingToken);
-                    await _timer.WaitForNextTickAsync(stoppingToken);
+                    await SynchronizePeersAsync(cancellationToken);
+                    await _timer.WaitForNextTickAsync(cancellationToken);
 
                     foreach (SubversePeerId peer in _callerMap.Values)
                     {
-                        await SynchronizePeersAsync(peer, stoppingToken);
-                        await _timer.WaitForNextTickAsync(stoppingToken);
+                        await SynchronizePeersAsync(peer, cancellationToken);
+                        await _timer.WaitForNextTickAsync(cancellationToken);
                     }
                 }
             }
@@ -235,15 +237,30 @@ namespace Subverse.Server
             finally 
             {
                 await _dhtEngine.StopAsync();
-                _dhtEngine.Dispose();
-
-                _http.Dispose();
-
                 _sipTransport.Shutdown();
-                _sipTransport.Dispose();
-
-                _timer.Dispose();
             }
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    _dhtEngine.Dispose();
+                    _http.Dispose();
+                    _sipTransport.Dispose();
+                    _timer.Dispose();
+                }
+
+                disposedValue = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
     }
 }

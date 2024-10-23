@@ -24,16 +24,7 @@ app.UseAuthorization();
 
 app.UseDefaultFiles(new DefaultFilesOptions() { RedirectToAppendTrailingSlash = true });
 
-var fileProvider = new PhysicalFileProvider(Path.Combine(builder.Environment.WebRootPath, "trust"));
-var requestPath = "/trust";
-
 app.UseStaticFiles();
-
-app.UseDirectoryBrowser(new DirectoryBrowserOptions
-{
-    FileProvider = fileProvider,
-    RequestPath = requestPath
-});
 
 app.MapControllers();
 

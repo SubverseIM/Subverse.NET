@@ -3,25 +3,20 @@ using System.Net;
 
 namespace Subverse.Server
 {
-    internal class NatTunnelService : BackgroundService
+    internal class HubService : BackgroundService
     {
+        private readonly IPeerService _peerService;
         private readonly IConfiguration _configuration;
-        private readonly ILogger<NatTunnelService> _logger;
-
-        private readonly RoutedPeerService _peerService;
-
-        private readonly TaskCompletionSource _tcs;
+        private readonly ILogger<HubService> _logger;
 
         private INatDevice? _natDevice;
         private Mapping? _mapping;
 
-        public NatTunnelService(IConfiguration configuration, ILogger<NatTunnelService> logger, RoutedPeerService peerService)
+        public HubService(IPeerService peerService, IConfiguration configuration, ILogger<HubService> logger)
         {
             _peerService = peerService;
             _configuration = configuration;
             _logger = logger;
-
-            _tcs = new();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,7 +32,7 @@ namespace Subverse.Server
 
             try
             {
-                await _tcs.Task.WaitAsync(stoppingToken);
+                await _peerService.RunAsync(stoppingToken);
             }
             catch (OperationCanceledException) { }
 
