@@ -4,14 +4,13 @@ using MonoTorrent.Dht;
 using PgpCore;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
-using System.IO;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 
 namespace Subverse.Server
 {
-    internal class RoutedPeerService : BackgroundService, IPeerService
+    internal class RoutedPeerService : BackgroundService
     {
         private static readonly TimeSpan DEFAULT_BOOTSTRAP_PERIOD = TimeSpan.FromSeconds(5.0);
 
