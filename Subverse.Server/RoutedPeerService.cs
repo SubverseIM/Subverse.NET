@@ -161,12 +161,10 @@ namespace Subverse.Server
 
         private async Task SipRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
         {
-            string fromEntityStr = sipRequest.Header.From.FromURI.User;
-            SubversePeerId fromEntityId = SubversePeerId.FromString(fromEntityStr);
-            _callerMap.TryAdd(sipRequest.Header.CallId, fromEntityId);
-
             string toEntityStr = sipRequest.Header.To.ToURI.User;
             SubversePeerId toEntityId = SubversePeerId.FromString(toEntityStr);
+            _callerMap.TryAdd(sipRequest.Header.CallId, toEntityId);
+
             _dhtEngine.GetPeers(new(toEntityId.GetBytes()));
 
             if (toEntityId == PeerId)
