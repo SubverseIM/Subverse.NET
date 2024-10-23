@@ -80,7 +80,7 @@ namespace Subverse.Server
 
             LocalEndPoint = _dhtListener.LocalEndPoint;
 
-            _sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
+            _sipChannel = new SIPUDPChannel(IPAddress.Any, 5060);
             _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
             _sipTransport.AddSIPChannel(_sipChannel);
 
@@ -180,28 +180,11 @@ namespace Subverse.Server
         {
             if (_callerMap.TryRemove(
                 sipResponse.Header.CallId,
-                out SubversePeerId fromEntityId) &&
-                fromEntityId == PeerId)
+                out SubversePeerId fromEntityId))
             {
                 await _sipTransport.SendResponseAsync(
                     new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
                     sipResponse);
-            }
-            else if (fromEntityId != PeerId)
-            {
-                _dhtEngine.GetPeers(new(fromEntityId.GetBytes()));
-
-                TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
-                    .GetOrAdd(fromEntityId, k => new());
-                IList<PeerInfo> peers = await tcs.Task;
-
-                foreach (PeerInfo peer in peers)
-                {
-                    IPAddress ipAddress = IPAddress.Parse(peer.ConnectionUri.DnsSafeHost);
-                    IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, peer.ConnectionUri.Port);
-
-                    await _sipTransport.SendResponseAsync(new SIPEndPoint(ipEndPoint), sipResponse);
-                }
             }
         }
 
