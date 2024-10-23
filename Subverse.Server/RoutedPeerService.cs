@@ -154,7 +154,6 @@ namespace Subverse.Server
 
             if (toEntityId == PeerId)
             {
-                sipRequest.Header.From.FromURI.Host = "subverse";
                 await _sipTransport.SendRequestAsync(
                     new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
                     sipRequest);
