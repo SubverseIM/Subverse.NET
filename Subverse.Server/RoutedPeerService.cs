@@ -183,9 +183,18 @@ namespace Subverse.Server
                 sipResponse.Header.CallId,
                 out SubversePeerId fromEntityId))
             {
-                await _sipTransport.SendResponseAsync(
-                    new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
-                    sipResponse);
+                TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
+                    .GetOrAdd(fromEntityId, k => new());
+                _dhtEngine.GetPeers(new(fromEntityId.GetBytes()));
+                IList<PeerInfo> peers = await tcs.Task;
+
+                foreach (PeerInfo peer in peers)
+                {
+                    IPAddress ipAddress = IPAddress.Parse(peer.ConnectionUri.DnsSafeHost);
+                    IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, peer.ConnectionUri.Port);
+
+                    await _sipTransport.SendResponseAsync(new SIPEndPoint(ipEndPoint), sipResponse);
+                }
             }
         }
 
