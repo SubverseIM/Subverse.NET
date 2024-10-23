@@ -102,12 +102,14 @@ namespace Subverse.Server
 
         public async Task<bool> InitializeDhtAsync()
         {
+            await SynchronizePeersAsync(PeerId);
+
             await _dhtEngine.SetListenerAsync(_dhtListener);
             await _dhtEngine.StartAsync();
 
             _dhtEngine.Announce(new(PeerId.GetBytes()), RemoteEndPoint?.Port ?? 0);
 
-            return await SynchronizePeersAsync();
+            return true;
         }
 
         private async Task<bool> SynchronizePeersAsync(CancellationToken cancellationToken = default)
@@ -218,6 +220,9 @@ namespace Subverse.Server
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
+                    await SynchronizePeersAsync(cancellationToken);
+                    await _timer.WaitForNextTickAsync(cancellationToken);
+
                     foreach (SubversePeerId peer in _callerMap.Values.Distinct())
                     {
                         await SynchronizePeersAsync(peer, cancellationToken);
