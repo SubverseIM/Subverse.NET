@@ -224,6 +224,8 @@ namespace Subverse.Server
                     {
                         await SynchronizePeersAsync(peer, stoppingToken);
                     }
+
+                    await Task.Delay(5000);
                 }
             }
             catch (OperationCanceledException) { }
