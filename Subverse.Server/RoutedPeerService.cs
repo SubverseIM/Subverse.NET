@@ -5,7 +5,9 @@ using PgpCore;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.Mime;
 using System.Text;
 
 namespace Subverse.Server
@@ -152,7 +154,8 @@ namespace Subverse.Server
 
         private async Task SynchronizePeersAsync(SubversePeerId peerId, CancellationToken cancellationToken = default)
         {
-            byte[] responseBytes = await _http.GetByteArrayAsync($"nodes?p={peerId}", cancellationToken);
+            HttpResponseMessage response = await _http.GetAsync($"nodes?p={peerId}", cancellationToken);
+            byte[] responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             _dhtEngine.Add([responseBytes]);
         }
 

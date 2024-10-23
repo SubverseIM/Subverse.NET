@@ -50,9 +50,10 @@ namespace Subverse.Bootstrapper.Controllers
 
         [HttpGet("nodes")]
         [Produces("application/octet-stream")]
-        public async Task<byte[]> GetNodesAsync([FromQuery(Name = "p")] string peerIdStr) 
+        public async Task GetNodesAsync([FromQuery(Name = "p")] string peerIdStr, CancellationToken cancellationToken) 
         {
-            return await _cache.GetAsync($"DAT-{peerIdStr}") ?? [];
+            byte[] responseBytes = await _cache.GetAsync($"DAT-{peerIdStr}", cancellationToken) ?? [];
+            await Response.Body.WriteAsync(responseBytes, cancellationToken);
         }
 
         [HttpPost("nodes")]
