@@ -1,6 +1,7 @@
 ﻿using MonoTorrent;
 using MonoTorrent.Connections.Dht;
 using MonoTorrent.Dht;
+using Org.BouncyCastle.Asn1.Ocsp;
 using PgpCore;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
@@ -80,7 +81,7 @@ namespace Subverse.Server
 
             LocalEndPoint = _dhtListener.LocalEndPoint;
 
-            _sipChannel = new SIPUDPChannel(IPAddress.Any, 5060);
+            _sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
             _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
             _sipTransport.AddSIPChannel(_sipChannel);
 
@@ -154,6 +155,7 @@ namespace Subverse.Server
 
             if (toEntityId == PeerId)
             {
+                sipRequest.Header.From.FromURI.Host = "subverse";
                 await _sipTransport.SendRequestAsync(
                     new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
                     sipRequest);
