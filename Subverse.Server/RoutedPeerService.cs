@@ -13,6 +13,8 @@ namespace Subverse.Server
 {
     internal class RoutedPeerService : BackgroundService, IPeerService
     {
+        private static readonly TimeSpan DEFAULT_BOOTSTRAP_PERIOD = TimeSpan.FromSeconds(5.0);
+
         private readonly ILogger<RoutedPeerService> _logger;
         private readonly IPgpKeyProvider _keyProvider;
 
@@ -20,6 +22,7 @@ namespace Subverse.Server
         private readonly ConcurrentDictionary<SubversePeerId, TaskCompletionSource<IList<PeerInfo>>> _getPeersTaskMap;
 
         private readonly EncryptionKeys _myEntityKeys;
+        private readonly PeriodicTimer _timer;
 
         private readonly SIPUDPChannel _sipChannel;
         private readonly SIPTransport _sipTransport;
@@ -61,6 +64,8 @@ namespace Subverse.Server
             PeerId = new(_myEntityKeys.PublicKey.GetFingerprint());
 
             _logger.LogInformation(PeerId.ToString());
+
+            _timer = new(DEFAULT_BOOTSTRAP_PERIOD);
 
             _dhtEngine = new DhtEngine();
             _dhtEngine.PeersFound += DhtPeersFound;
@@ -115,7 +120,7 @@ namespace Subverse.Server
             }
         }
 
-        private async Task<bool> SynchronizePeersAsync(CancellationToken cancellationToken)
+        private async Task<bool> SynchronizePeersAsync(CancellationToken cancellationToken = default)
         {
             try
             {
@@ -144,7 +149,7 @@ namespace Subverse.Server
             }
         }
 
-        private async Task SynchronizePeersAsync(SubversePeerId peerId, CancellationToken cancellationToken)
+        private async Task SynchronizePeersAsync(SubversePeerId peerId, CancellationToken cancellationToken = default)
         {
             byte[] responseBytes = await _http.GetByteArrayAsync($"nodes?p={peerId}", cancellationToken);
             _dhtEngine.Add([responseBytes]);
@@ -205,6 +210,7 @@ namespace Subverse.Server
                 {
                     IPAddress ipAddress = IPAddress.Parse(peer.ConnectionUri.DnsSafeHost);
                     IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, peer.ConnectionUri.Port);
+
                     await _sipTransport.SendResponseAsync(new SIPEndPoint(ipEndPoint), sipResponse);
                 }
             }
@@ -216,22 +222,28 @@ namespace Subverse.Server
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    stoppingToken.ThrowIfCancellationRequested();
-
                     await SynchronizePeersAsync(stoppingToken);
+                    await _timer.WaitForNextTickAsync(stoppingToken);
 
                     foreach (SubversePeerId peer in _callerMap.Values)
                     {
                         await SynchronizePeersAsync(peer, stoppingToken);
+                        await _timer.WaitForNextTickAsync(stoppingToken);
                     }
-
-                    await Task.Delay(5000);
                 }
             }
             catch (OperationCanceledException) { }
             finally 
             {
                 await _dhtEngine.StopAsync();
+                _dhtEngine.Dispose();
+
+                _http.Dispose();
+
+                _sipTransport.Shutdown();
+                _sipTransport.Dispose();
+
+                _timer.Dispose();
             }
         }
     }

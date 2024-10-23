@@ -5,16 +5,17 @@ namespace Subverse.Server
 {
     internal class NatTunnelService : BackgroundService
     {
-        private readonly IPeerService _peerService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<NatTunnelService> _logger;
+
+        private readonly RoutedPeerService _peerService;
 
         private readonly TaskCompletionSource _tcs;
 
         private INatDevice? _natDevice;
         private Mapping? _mapping;
 
-        public NatTunnelService(IPeerService peerService, IConfiguration configuration, ILogger<NatTunnelService> logger)
+        public NatTunnelService(IConfiguration configuration, ILogger<NatTunnelService> logger, RoutedPeerService peerService)
         {
             _peerService = peerService;
             _configuration = configuration;
