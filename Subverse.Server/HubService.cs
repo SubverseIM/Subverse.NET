@@ -57,7 +57,7 @@ namespace Subverse.Server
             {
                 _natDevice = e.Device; 
                 _mapping = await _natDevice.CreatePortMapAsync(
-                    new(Protocol.Udp, 5060, 5060, 0, "SubverseV2")
+                    new(Protocol.Udp, 5060, 60303, 0, "SubverseV2")
                     );
 
                 int remotePort = _mapping.PublicPort;
