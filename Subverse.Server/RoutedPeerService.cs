@@ -4,12 +4,14 @@ using MonoTorrent.Dht;
 using PgpCore;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 
 namespace Subverse.Server
 {
-    internal class RoutedPeerService : IPeerService
+    internal class RoutedPeerService : BackgroundService, IPeerService
     {
         private readonly ILogger<RoutedPeerService> _logger;
         private readonly IPgpKeyProvider _keyProvider;
@@ -24,6 +26,8 @@ namespace Subverse.Server
 
         private readonly IDhtEngine _dhtEngine;
         private readonly IDhtListener _dhtListener;
+
+        private readonly HttpClient _http;
 
         public IPEndPoint? LocalEndPoint { get; set; }
         public IPEndPoint? RemoteEndPoint { get; set; }
@@ -63,6 +67,8 @@ namespace Subverse.Server
 
             _dhtListener = new DhtListener(new IPEndPoint(IPAddress.Any, 0));
 
+            _http = new() { BaseAddress = new Uri("https://subverse.network/") };
+
             LocalEndPoint = _dhtListener.LocalEndPoint;
 
             _sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
@@ -85,12 +91,63 @@ namespace Subverse.Server
             }
         }
 
-        public async Task InitializeDhtAsync()
+        public async Task<bool> InitializeDhtAsync()
         {
             await _dhtEngine.SetListenerAsync(_dhtListener);
             await _dhtEngine.StartAsync();
 
             _dhtEngine.Announce(new(PeerId.GetBytes()), RemoteEndPoint?.Port ?? 0);
+
+            try
+            {
+                using (FileStream pkFileStream = _keyProvider.GetPublicKeyFile().OpenRead())
+                using (StreamContent pkFileStreamContent = new(pkFileStream)
+                { Headers = { ContentType = new("application/pgp-keys") } })
+                {
+                    HttpResponseMessage response = await _http.PostAsync("pk", pkFileStreamContent);
+                    return await response.Content.ReadFromJsonAsync<bool>();
+                }
+            }
+            catch (Exception ex) 
+            {
+                _logger.LogError(ex, null);
+                return false;
+            }
+        }
+
+        private async Task<bool> SynchronizePeersAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                ReadOnlyMemory<byte> nodesBytes = await _dhtEngine.SaveNodesAsync();
+
+                byte[] requestBytes;
+                using (PGP pgp = new(_myEntityKeys))
+                using (MemoryStream inputStream = new(nodesBytes.ToArray()))
+                using (MemoryStream outputStream = new())
+                {
+                    await pgp.SignAsync(inputStream, outputStream);
+                    requestBytes = outputStream.ToArray();
+                }
+
+                using (ByteArrayContent requestContent = new(requestBytes)
+                { Headers = { ContentType = new("application/octet-stream") } })
+                {
+                    HttpResponseMessage response = await _http.PostAsync($"nodes?p={PeerId}", requestContent);
+                    return await response.Content.ReadFromJsonAsync<bool>();
+                }
+            }
+            catch (Exception ex) 
+            {
+                _logger.LogError(ex, null);
+                return false;
+            }
+        }
+
+        private async Task SynchronizePeersAsync(SubversePeerId peerId, CancellationToken cancellationToken)
+        {
+            byte[] responseBytes = await _http.GetByteArrayAsync($"nodes?p={peerId}", cancellationToken);
+            _dhtEngine.Add([responseBytes]);
         }
 
         private async Task SipRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
@@ -105,7 +162,9 @@ namespace Subverse.Server
 
             if (toEntityId == PeerId)
             {
-                await _sipTransport.SendRequestAsync(new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061), sipRequest);
+                await _sipTransport.SendRequestAsync(
+                    new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061), 
+                    sipRequest);
             }
             else
             {
@@ -127,12 +186,19 @@ namespace Subverse.Server
         {
             if (_callerMap.TryRemove(
                 sipResponse.Header.CallId,
-                out SubversePeerId fromEntityId))
+                out SubversePeerId fromEntityId) &&
+                fromEntityId == PeerId)
+            {
+                await _sipTransport.SendResponseAsync(
+                    new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
+                    sipResponse);
+            }
+            else if(fromEntityId != PeerId)
             {
                 _dhtEngine.GetPeers(new(fromEntityId.GetBytes()));
 
                 TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
-                    .AddOrUpdate(fromEntityId, k => new(), (k, old) => new());
+                    .GetOrAdd(fromEntityId, k => new());
                 IList<PeerInfo> peers = await tcs.Task;
 
                 foreach (PeerInfo peer in peers)
@@ -141,6 +207,29 @@ namespace Subverse.Server
                     IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, peer.ConnectionUri.Port);
                     await _sipTransport.SendResponseAsync(new SIPEndPoint(ipEndPoint), sipResponse);
                 }
+            }
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            try
+            {
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    stoppingToken.ThrowIfCancellationRequested();
+
+                    await SynchronizePeersAsync(stoppingToken);
+
+                    foreach (SubversePeerId peer in _callerMap.Values)
+                    {
+                        await SynchronizePeersAsync(peer, stoppingToken);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            finally 
+            {
+                await _dhtEngine.StopAsync();
             }
         }
     }

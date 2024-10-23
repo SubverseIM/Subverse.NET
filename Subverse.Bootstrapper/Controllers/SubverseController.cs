@@ -87,7 +87,9 @@ namespace Subverse.Bootstrapper.Controllers
                     if (verifySuccess)
                     {
                         SubversePeerId peerId = new(keyContainer.PublicKey.GetFingerprint());
-                        await _cache.SetAsync($"DAT-{peerId}", nodesBytes);
+                        await _cache.SetAsync($"DAT-{peerId}", nodesBytes, 
+                            new DistributedCacheEntryOptions { AbsoluteExpiration = null }
+                            );
                         return true;
                     }
                 }

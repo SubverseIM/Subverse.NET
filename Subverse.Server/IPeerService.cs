@@ -9,6 +9,6 @@ namespace Subverse.Server
         IPEndPoint? LocalEndPoint { get; set; }
         IPEndPoint? RemoteEndPoint { get; set; }
 
-        Task InitializeDhtAsync();
+        Task<bool> InitializeDhtAsync();
     }
 }
