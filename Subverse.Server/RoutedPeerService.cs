@@ -81,7 +81,7 @@ namespace Subverse.Server
 
             LocalEndPoint = _dhtListener.LocalEndPoint;
 
-            _sipChannel = new SIPUDPChannel(IPAddress.Loopback, 5060);
+            _sipChannel = new SIPUDPChannel(IPAddress.Any, 5060);
             _sipTransport = new SIPTransport(true, Encoding.UTF8, Encoding.UTF8);
             _sipTransport.AddSIPChannel(_sipChannel);
 
