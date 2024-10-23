@@ -107,8 +107,6 @@ namespace Subverse.Server
             await _dhtEngine.SetListenerAsync(_dhtListener);
             await _dhtEngine.StartAsync();
 
-            _dhtEngine.Announce(new(PeerId.GetBytes()), RemoteEndPoint?.Port ?? 0);
-
             return true;
         }
 
@@ -220,6 +218,8 @@ namespace Subverse.Server
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
+                    _dhtEngine.Announce(new(PeerId.GetBytes()), RemoteEndPoint?.Port ?? 0);
+
                     await SynchronizePeersAsync(cancellationToken);
                     await _timer.WaitForNextTickAsync(cancellationToken);
 
