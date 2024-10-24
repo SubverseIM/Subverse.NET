@@ -196,8 +196,8 @@ namespace Subverse.Server
                 sipResponse.Header.CallId,
                 out SubversePeerId fromEntityId
                 );
-                
-            sipResponse.SetSendFromHints(localSIPEndPoint);
+
+            sipResponse.Header.Vias.UpateTopViaHeader(new IPEndPoint(IPAddress.Loopback, 5060));
             if (!IPAddress.IsLoopback(remoteEndPoint.Address) && wasRequested)
             {
                 _cachedPeers.AddOrUpdate(
