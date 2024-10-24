@@ -160,6 +160,7 @@ namespace Subverse.Server
             SubversePeerId fromEntityId = SubversePeerId.FromString(fromEntityStr);
             _callerMap.TryAdd(sipRequest.Header.CallId, fromEntityId);
 
+            sipRequest.SetSendFromHints(localSIPEndPoint);
             if (toEntityId == PeerId)
             {
                 await _sipTransport.SendRequestAsync(
@@ -195,7 +196,8 @@ namespace Subverse.Server
                 sipResponse.Header.CallId,
                 out SubversePeerId fromEntityId
                 );
-
+                
+            sipResponse.SetSendFromHints(localSIPEndPoint);
             if (!IPAddress.IsLoopback(remoteEndPoint.Address) && wasRequested)
             {
                 _cachedPeers.AddOrUpdate(
