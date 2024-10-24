@@ -160,7 +160,7 @@ namespace Subverse.Server
             SubversePeerId fromEntityId = SubversePeerId.FromString(fromEntityStr);
             _callerMap.TryAdd(sipRequest.Header.CallId, fromEntityId);
 
-            sipRequest.SetSendFromHints(localSIPEndPoint);
+            sipRequest.Header.Vias.UpateTopViaHeader(new IPEndPoint(IPAddress.Loopback, 5060));
             if (toEntityId == PeerId)
             {
                 await _sipTransport.SendRequestAsync(
