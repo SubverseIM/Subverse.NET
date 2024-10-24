@@ -22,6 +22,8 @@ namespace Subverse.Server
         private readonly IPgpKeyProvider _keyProvider;
 
         private readonly ConcurrentDictionary<string, SubversePeerId> _callerMap;
+
+        private readonly ConcurrentDictionary<SubversePeerId, SIPEndPoint> _cachedPeers;
         private readonly ConcurrentDictionary<SubversePeerId, TaskCompletionSource<IList<PeerInfo>>> _getPeersTaskMap;
 
         private readonly EncryptionKeys _myEntityKeys;
@@ -88,8 +90,10 @@ namespace Subverse.Server
             _sipTransport.SIPTransportRequestReceived += SipRequestReceived;
             _sipTransport.SIPTransportResponseReceived += SipResponseReceived;
 
-            _callerMap = new ConcurrentDictionary<string, SubversePeerId>();
-            _getPeersTaskMap = new ConcurrentDictionary<SubversePeerId, TaskCompletionSource<IList<PeerInfo>>>();
+            _callerMap = new();
+
+            _cachedPeers = new();
+            _getPeersTaskMap = new();
         }
 
         private void DhtPeersFound(object? sender, PeersFoundEventArgs e)
@@ -162,6 +166,11 @@ namespace Subverse.Server
             }
             else
             {
+                if (_cachedPeers.TryGetValue(toEntityId, out SIPEndPoint? peerEndPoint)) 
+                {
+                    await _sipTransport.SendRequestAsync(peerEndPoint, sipRequest);
+                }
+
                 TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
                     .GetOrAdd(toEntityId, k => new());
                 _dhtEngine.GetPeers(new(toEntityId.GetBytes()));
@@ -179,10 +188,30 @@ namespace Subverse.Server
 
         private async Task SipResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPResponse sipResponse)
         {
-            if (_callerMap.TryRemove(
+            bool wasRequested = _callerMap.TryRemove(
                 sipResponse.Header.CallId,
-                out SubversePeerId fromEntityId))
+                out SubversePeerId fromEntityId
+                );
+
+            if (!IPAddress.IsLoopback(remoteEndPoint.Address) && wasRequested)
             {
+                _cachedPeers.AddOrUpdate(
+                    fromEntityId, 
+                    pid => remoteEndPoint, 
+                    (pid, old) => remoteEndPoint
+                    );
+
+                await _sipTransport.SendResponseAsync(
+                    new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
+                    sipResponse);
+            }
+            else if (wasRequested)
+            {
+                if (_cachedPeers.TryGetValue(fromEntityId, out SIPEndPoint? peerEndPoint))
+                {
+                    await _sipTransport.SendResponseAsync(peerEndPoint, sipResponse);
+                }
+
                 TaskCompletionSource<IList<PeerInfo>> tcs = _getPeersTaskMap
                     .GetOrAdd(fromEntityId, k => new());
                 _dhtEngine.GetPeers(new(fromEntityId.GetBytes()));
