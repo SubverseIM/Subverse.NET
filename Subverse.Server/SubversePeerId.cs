@@ -1,9 +1,8 @@
 ﻿using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Text;
 
-namespace Subverse.Types
+namespace Subverse.Server
 {
     /// <summary>
     /// Represents a generic 160-bit Peer ID.
@@ -76,13 +75,19 @@ namespace Subverse.Types
 
         }
 
+        public ReadOnlySpan<byte> GetBytes()
+        {
+            fixed (void* d = data)
+                return new ReadOnlySpan<byte>(d, SIZE_BYTES);
+        }
+
         public override string ToString()
         {
             Span<char> result = stackalloc char[SIZE_BYTES * 2];
-            fixed(int* ptr = data) 
+            fixed (int* ptr = data)
             {
                 var s = new ReadOnlySpan<byte>(ptr, SIZE_BYTES);
-                for (int i = 0; i < SIZE_BYTES; i++) 
+                for (int i = 0; i < SIZE_BYTES; i++)
                 {
                     s[i].ToString("x2").CopyTo(result.Slice(i << 1, 2));
                 }

@@ -4,14 +4,13 @@
 		<TargetFramework>net8.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
 	</PropertyGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+		<PackageReference Include="PgpCore" Version="6.5.1" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<ProjectReference Include="..\Subverse\Subverse.csproj" />
 	</ItemGroup>
 
 </Project>

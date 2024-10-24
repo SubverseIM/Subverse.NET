@@ -1,3 +1,6 @@
 [submodule "Quiche.NET"]
 	path = Quiche.NET
 	url = https://github.com/IsaMorphic/Quiche.NET.git
+[submodule "monotorrent"]
+	path = monotorrent
+	url = https://github.com/alanmcgovern/monotorrent.git

@@ -1,27 +1,22 @@
 ﻿using Mono.Nat;
-using Subverse.Abstractions;
 using System.Net;
 
 namespace Subverse.Server
 {
-    internal class NatTunnelService : BackgroundService
+    internal class HubService : BackgroundService
     {
         private readonly IPeerService _peerService;
         private readonly IConfiguration _configuration;
-        private readonly ILogger<NatTunnelService> _logger;
-
-        private readonly TaskCompletionSource _tcs;
+        private readonly ILogger<HubService> _logger;
 
         private INatDevice? _natDevice;
         private Mapping? _mapping;
 
-        public NatTunnelService(IPeerService peerService, IConfiguration configuration, ILogger<NatTunnelService> logger)
+        public HubService(IPeerService peerService, IConfiguration configuration, ILogger<HubService> logger)
         {
             _peerService = peerService;
             _configuration = configuration;
             _logger = logger;
-
-            _tcs = new();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,7 +32,7 @@ namespace Subverse.Server
 
             try
             {
-                await _tcs.Task.WaitAsync(stoppingToken);
+                await _peerService.RunAsync(stoppingToken);
             }
             catch (OperationCanceledException) { }
 
@@ -60,13 +55,9 @@ namespace Subverse.Server
         {
             try
             {
-                if (_peerService.LocalEndPoint is null) return;
-
-                _natDevice = e.Device;
-
-                int localPort = _peerService.LocalEndPoint.Port;
+                _natDevice = e.Device; 
                 _mapping = await _natDevice.CreatePortMapAsync(
-                    new(Protocol.Udp, localPort, 6_03_03, 0, "SubverseV2")
+                    new(Protocol.Udp, 5060, 60303, 0, "SubverseV2")
                     );
 
                 int remotePort = _mapping.PublicPort;
@@ -75,6 +66,7 @@ namespace Subverse.Server
                 if (remoteAddr != IPAddress.Any)
                 {
                     _peerService.RemoteEndPoint = new IPEndPoint(remoteAddr, remotePort);
+                    await _peerService.InitializeDhtAsync();
                 }
 
                 _logger.LogInformation($"Successfully allocated external endpoint: {_peerService.RemoteEndPoint}");

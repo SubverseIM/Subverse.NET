@@ -1,4 +1,4 @@
-using Subverse.Abstractions;
+using Subverse;
 using Subverse.Server;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -9,11 +9,7 @@ builder.Services.AddSingleton<IPgpKeyProvider, PgpKeyProvider>();
 
 // Mission-critical
 builder.Services.AddSingleton<IPeerService, RoutedPeerService>();
-
-// Main
-builder.Services.AddHostedService<QuicheListenerService>();
-builder.Services.AddHostedService<PeerBootstrapService>();
-builder.Services.AddHostedService<NatTunnelService>();
+builder.Services.AddHostedService<HubService>();
 
 // Windows-specific
 builder.Services.AddWindowsService(options => 
