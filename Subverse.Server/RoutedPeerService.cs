@@ -155,17 +155,20 @@ namespace Subverse.Server
         {
             string toEntityStr = sipRequest.Header.To.ToURI.User;
             SubversePeerId toEntityId = SubversePeerId.FromString(toEntityStr);
-            _callerMap.TryAdd(sipRequest.Header.CallId, toEntityId);
+
+            string fromEntityStr = sipRequest.Header.From.FromURI.User;
+            SubversePeerId fromEntityId = SubversePeerId.FromString(fromEntityStr);
+            _callerMap.TryAdd(sipRequest.Header.CallId, fromEntityId);
 
             if (toEntityId == PeerId)
             {
-                sipRequest.Header.From.FromURI.Host = "subverse";
                 await _sipTransport.SendRequestAsync(
                     new SIPEndPoint(SIPProtocolsEnum.udp, IPAddress.Loopback, 5061),
                     sipRequest);
             }
             else
             {
+                sipRequest.Header.From.FromURI.Host = "subverse";
                 if (_cachedPeers.TryGetValue(toEntityId, out SIPEndPoint? peerEndPoint)) 
                 {
                     await _sipTransport.SendRequestAsync(peerEndPoint, sipRequest);
