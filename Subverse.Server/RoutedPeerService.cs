@@ -192,7 +192,7 @@ namespace Subverse.Server
 
         private async Task SipResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPResponse sipResponse)
         {
-            bool wasRequested = _callerMap.TryRemove(
+            bool wasRequested = _callerMap.TryGetValue(
                 sipResponse.Header.CallId,
                 out SubversePeerId fromEntityId
                 );
