@@ -32,14 +32,17 @@ namespace Subverse.Bootstrapper.Controllers
             }
         }
         
-        [HttpPost("invite")]
+        [HttpGet("invite")]
         [Produces("application/json")]
         public async Task<string> CreateInviteAsync([FromQuery(Name = "p")] string peerIdStr, CancellationToken cancellationToken) 
         {
             string inviteId = Guid.NewGuid().ToString();
             await _cache.SetStringAsync(
                     $"INV-{inviteId}", $"sv://{peerIdStr}",
-                    new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(5) },
+                    new DistributedCacheEntryOptions 
+                    { 
+                        AbsoluteExpiration = DateTimeOffset.Now + TimeSpan.FromMinutes(5) 
+                    },
                     cancellationToken);
             return inviteId;
         }
