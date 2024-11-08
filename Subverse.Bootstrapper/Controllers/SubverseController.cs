@@ -18,6 +18,43 @@ namespace Subverse.Bootstrapper.Controllers
             _logger = logger;
         }
 
+        [HttpGet("invite/{id}")]
+        public async Task<ActionResult> UseInviteAsync([FromRoute(Name = "id")] string inviteId)
+        {
+            string? peerUri = await _cache.GetStringAsync($"INV-{inviteId}");
+            if (peerUri is not null)
+            {
+                return Redirect(peerUri);
+            }
+            else 
+            {
+                return NotFound();
+            }
+        }
+        
+        [HttpGet("invite")]
+        [Produces("application/json")]
+        public async Task<string> CreateInviteAsync([FromQuery(Name = "p")] string peerIdStr, CancellationToken cancellationToken) 
+        {
+            string inviteId = Guid.NewGuid().ToString();
+            await _cache.SetStringAsync(
+                    $"INV-{inviteId}", $"sv://{peerIdStr}",
+                    new DistributedCacheEntryOptions 
+                    { 
+                        AbsoluteExpiration = DateTimeOffset.Now + TimeSpan.FromMinutes(5) 
+                    },
+                    cancellationToken);
+            return inviteId;
+        }
+
+        [HttpGet("pk")]
+        [Produces("application/pgp-keys")]
+        public async Task GetPublicKey([FromQuery(Name = "p")] string peerIdStr, CancellationToken cancellationToken)
+        {
+            byte[] responseBytes = await _cache.GetAsync($"PKX-{peerIdStr}", cancellationToken) ?? [];
+            await Response.Body.WriteAsync(responseBytes, cancellationToken);
+        }
+
         [HttpPost("pk")]
         [Consumes("application/pgp-keys")]
         [Produces("application/json")]
@@ -50,7 +87,7 @@ namespace Subverse.Bootstrapper.Controllers
 
         [HttpGet("nodes")]
         [Produces("application/octet-stream")]
-        public async Task GetNodesAsync([FromQuery(Name = "p")] string peerIdStr, CancellationToken cancellationToken) 
+        public async Task GetNodesAsync([FromQuery(Name = "p")] string peerIdStr, CancellationToken cancellationToken)
         {
             byte[] responseBytes = await _cache.GetAsync($"DAT-{peerIdStr}", cancellationToken) ?? [];
             await Response.Body.WriteAsync(responseBytes, cancellationToken);
@@ -88,14 +125,14 @@ namespace Subverse.Bootstrapper.Controllers
                     if (verifySuccess)
                     {
                         SubversePeerId peerId = new(keyContainer.PublicKey.GetFingerprint());
-                        await _cache.SetAsync($"DAT-{peerId}", nodesBytes, 
+                        await _cache.SetAsync($"DAT-{peerId}", nodesBytes,
                             new DistributedCacheEntryOptions { AbsoluteExpiration = null }
                             );
                         return true;
                     }
                 }
             }
-            catch (Exception ex) 
+            catch (Exception ex)
             {
                 _logger.LogError(ex, null);
             }
